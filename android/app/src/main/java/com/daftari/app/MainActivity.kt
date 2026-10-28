@@ -152,7 +152,7 @@ private fun Root(vm: AppViewModel, s: AppSettings?, act: FragmentActivity, openP
     val toast by vm.toast.collectAsState()
     LaunchedEffect(toast) { toast?.let { Toast.makeText(ctx, it, Toast.LENGTH_SHORT).show(); vm.toast.value = null } }
     var splashDone by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { vm.refreshServerInfo(); delay(1900); splashDone = true }
+    LaunchedEffect(Unit) { vm.refreshServerInfo(); delay(1750); /* one full cycle of the v2 clip (1.67 s) */ splashDone = true }
     val unlocked by vm.unlocked.collectAsState()
     AnimatedContent(
         targetState = when {

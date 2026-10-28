@@ -35,8 +35,8 @@ import com.daftari.app.ui.theme.Df
 object ClipConfig { var useVideo = true }
 
 /**
- * Madyan's own Daftari animation (book opens, files fly out, book closes), processed to a pure-black background with
- * feathered edges so it melts into the app's #000. Plays muted on a TextureView; [loop] for loading states.
+ * Madyan's own Daftari animation, v2 (sent Oct 28 2026: book opens, files fly out, book closes), one seamless 1.67 s cycle,
+ * processed to a pure-black background (floor reflection faded, edges feathered, border pixels 0) so it melts into the app's #000. Plays muted on a TextureView; [loop] for loading states.
  * On the white theme it sits inside a black rounded tile (the clip is designed for black).
  */
 @Composable
