@@ -1,0 +1,27 @@
+{
+  "name": "daftari-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Daftari (دفتري) backend: phone OTP (WhatsApp Cloud / SMS), Google sign-in, «مدين» AI chat, smart import, backup, Pro activation codes.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/main.js",
+    "dev": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "fastify": "^5.12.7",
+    "pg": "^8.23.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}
