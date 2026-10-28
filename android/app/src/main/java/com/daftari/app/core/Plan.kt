@@ -32,9 +32,9 @@ object Plan {
     )
 
     fun priceText(p: Price, c: Currency): String = when (c) {
-        Currency.YER -> Money.format(Money.ofWhole(p.yer), c, false)
-        Currency.SAR -> Money.format(Money.ofWhole(p.sar), c, false)
-        Currency.USD -> Money.format(Money.ofWhole(p.usd), c, false)
+        Currency.YER -> Money.format(Money.ofWhole(p.yer), c)
+        Currency.SAR -> Money.format(Money.ofWhole(p.sar), c)
+        Currency.USD -> Money.format(Money.ofWhole(p.usd), c)
     }
 
     private const val DAY = 24 * 3600_000L

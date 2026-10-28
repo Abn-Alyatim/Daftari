@@ -147,7 +147,7 @@ fun HomeScreen(d: Dashboard, role: Role, business: String, owner: String, curren
                                 T(s.party.name, 14.sp, FontWeight.Bold, maxLines = 1)
                                 T(if (due == today) "موعده اليوم" else "موعده كان ${Dates.short(due)}", 11.5.sp, color = c.bad)
                             }
-                            Box(Modifier.clip(RoundedCornerShape(11.dp)).background(Color(0x2225D366)).clickable { a.onRemind(s) }.padding(horizontal = 10.dp, vertical = 7.dp)) {
+                            Box(Modifier.clip(RoundedCornerShape(11.dp)).border(1.dp, Color(0x6625D366), RoundedCornerShape(11.dp)).clickable { a.onRemind(s) }.padding(horizontal = 10.dp, vertical = 7.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) { DfIcon(R.drawable.ic_si_whatsapp, 14.dp, Color(0xFF25D366)); Spacer(Modifier.width(5.dp)); T("ذكّره", 12.sp, FontWeight.Bold) }
                             }
                         }

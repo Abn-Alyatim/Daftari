@@ -17,7 +17,10 @@ object Phone {
     /** Digits only, for wa.me links and WhatsApp jids. */
     fun waDigits(e164: String): String = e164.filter { it.isDigit() }
 
-    fun display(e164: String): String {
+    /** Display form wrapped in a left-to-right isolate so it never flips inside Arabic text. */
+    fun display(e164: String): String = "\u2066" + displayPlain(e164) + "\u2069"
+
+    fun displayPlain(e164: String): String {
         val d = e164.removePrefix("+")
         return if (d.startsWith("967") && d.length == 12) "+967 ${d.substring(3, 5)} ${d.substring(5, 8)} ${d.substring(8)}" else e164
     }

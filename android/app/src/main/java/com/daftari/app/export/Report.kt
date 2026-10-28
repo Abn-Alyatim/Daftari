@@ -52,7 +52,7 @@ object ReportBuilder {
             totals = listOf("", "الإجمالي", Money.plain(st.totalDebit), Money.plain(st.totalCredit), Money.plain(st.closing)),
             summary = listOf(
                 (if (role == Role.LANDLORD) "المستأجر" else "الزبون") to p.name,
-                "الجوال" to p.phone.ifBlank { "—" },
+                "الجوال" to (if (p.phone.isBlank()) "—" else com.daftari.app.core.Phone.display(p.phone)),
                 "المتبقي" to Money.plain(st.closing, currency),
             ),
         )
@@ -81,7 +81,7 @@ object ReportBuilder {
                 if (inPeriod > 0) Money.plain(inPeriod) else "", if (bal > 0) Money.plain(bal) else "0",
                 last?.let { Dates.numeric(it.date) } ?: "", last?.collector.orEmpty(), last?.receiptNo.orEmpty(), s.party.notes.lineSequence().firstOrNull().orEmpty(),
             ) else listOf(
-                (i + 1).toString(), s.party.name, s.party.phone, Money.plain(s.totalDue), if (inPeriod > 0) Money.plain(inPeriod) else "",
+                (i + 1).toString(), s.party.name, if (s.party.phone.isBlank()) "" else com.daftari.app.core.Phone.display(s.party.phone), Money.plain(s.totalDue), if (inPeriod > 0) Money.plain(inPeriod) else "",
                 if (bal > 0) Money.plain(bal) else "0", last?.let { Dates.numeric(it.date) } ?: "", s.status.labelAr,
             )
         }

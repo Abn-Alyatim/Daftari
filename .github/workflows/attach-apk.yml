@@ -1,0 +1,35 @@
+name: Attach APK to release
+# Run from the Actions tab (or the API): downloads a public APK, checks its SHA-256, attaches it to an existing release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.4.1)"
+        required: true
+      url:
+        description: "Public https URL of the APK"
+        required: true
+      name:
+        description: "Asset file name"
+        required: true
+      sha256:
+        description: "Expected SHA-256 of the file"
+        required: true
+permissions:
+  contents: write
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download, verify, upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          URL: ${{ inputs.url }}
+          NAME: ${{ inputs.name }}
+          SHA: ${{ inputs.sha256 }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o "$NAME" "$URL"
+          echo "$SHA  $NAME" | sha256sum -c -
+          gh release upload "$TAG" "$NAME" --clobber --repo "$GITHUB_REPOSITORY"

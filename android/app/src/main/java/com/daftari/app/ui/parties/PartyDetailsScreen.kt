@@ -80,7 +80,7 @@ fun PartyDetailsScreen(s: PartySummary, entries: List<Entry>, attachments: List<
                 val tone = when (s.status) { Status.LATE -> c.bad; Status.PAID -> c.ok; else -> c.warn }
                 DfCard(Modifier.padding(top = 16.dp).fillMaxWidth(), border = tone.copy(alpha = 0.28f), bg = c.s1) {
                     Column(
-                        Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(tone.copy(alpha = 0.08f), Color.Transparent))).padding(16.dp),
+                        Modifier.fillMaxWidth().padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         T(if (s.balance > 0) "المتبقي عليه" else "حسابه", 12.5.sp, FontWeight.Medium, c.muted)
@@ -143,7 +143,7 @@ fun PartyDetailsScreen(s: PartySummary, entries: List<Entry>, attachments: List<
                     if (e.items.isNotBlank()) T(e.items.replace("\n", "، "), 11.5.sp, color = c.muted2, maxLines = 2)
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    T((if (pay) "+" else "−") + Money.format(e.amount, currency, false), 14.sp, FontWeight.ExtraBold, if (pay) c.ok else c.bad)
+                    T("\u2066" + (if (pay) "+" else "−") + Money.format(e.amount, currency, false) + "\u2069", 14.sp, FontWeight.ExtraBold, if (pay) c.ok else c.bad)
                     T("حذف", 10.5.sp, color = c.muted2, modifier = Modifier.clickable { onDelete(e) })
                 }
             }
