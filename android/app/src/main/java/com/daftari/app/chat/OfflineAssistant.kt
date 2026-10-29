@@ -109,12 +109,12 @@ object OfflineAssistant {
             val lines = ArrayList<String>()
             lines += (if (debt) "على: " else "من: ") + name + if (isNew) " (زبون جديد)" else ""
             if (given != acc) {
-                val r = x.rates.rate(given.code, acc.code, buy = !debt)
+                val r = x.rates.rate(given.code, acc.code)
                 if (r == null) return ChatMessage(false, "لا يوجد لدي سعر صرف ${given.code} ← ${acc.code}. اضبطه من الإعدادات ‹أسعار الصرف›.")
                 rate = Rates.plain(r); orig = amount.minor; origCur = given.code; minor = Rates.convert(orig, rate)
-                lines += "المبلغ: ${Money.format(orig, given)} × $rate"
+                lines += "المبلغ: ${Money.format(orig, given)} بسعر الشراء $rate"
                 lines += "\u200F= \u2066${Money.number(minor)}\u2069 ${acc.labelAr}"
-                lines += "سعر ${x.rates.current.city} (${if (debt) "بيع" else "شراء"}) · آخر تحديث \u2066${x.rates.current.date}\u2069"
+                lines += "سعر الشراء في ${x.rates.current.city} · آخر تحديث \u2066${x.rates.current.date}\u2069"
             } else lines += "المبلغ: ${Money.format(minor, acc)}"
             if (items.isNotBlank()) lines += "الأغراض: $items"
             if (method == "transfer") lines += "حوالة" + (if (transferCo.isNotBlank()) " · $transferCo" else "") + (if (transferNo.isNotBlank()) " · رقم \u2066$transferNo\u2069" else " (اكتب رقمها)")

@@ -177,7 +177,13 @@ private fun Bubble(m: ChatMessage, onConfirm: (ChatMessage) -> Unit, onCancel: (
                         Pill(if (a.offline) "دون إنترنت ✓" else "تحتاج إلى تأكيد", if (a.offline) c.ok else c.warn, c.warnSoft, if (a.offline) null else R.drawable.ic_lock)
                     }
                     T(actionLabel(a), 14.sp, FontWeight.Bold, modifier = Modifier.padding(vertical = 6.dp))
-                    a.lines.forEach { l -> T(l, 12.5.sp, FontWeight.Medium, c.text, modifier = Modifier.padding(bottom = 3.dp), lineHeight = 19.sp) }
+                    val payLogo = a.note.takeIf { (a.method == "wallet" || a.method == "transfer") && com.daftari.app.ui.parties.walletIcon(it) != null }
+                    a.lines.forEach { l ->
+                        if (payLogo != null && (l.startsWith("حوالة") || l.startsWith("محفظة"))) Row(Modifier.padding(bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                            com.daftari.app.ui.parties.WalletLogo(payLogo, 18.dp); Spacer(Modifier.width(6.dp))
+                            T(l, 12.5.sp, FontWeight.Medium, c.text, lineHeight = 19.sp)
+                        } else T(l, 12.5.sp, FontWeight.Medium, c.text, modifier = Modifier.padding(bottom = 3.dp), lineHeight = 19.sp)
+                    }
                     if (a.lines.isNotEmpty()) Spacer(Modifier.height(6.dp))
                     when (m.actionDone) {
                         true -> T("✓ تم", 13.sp, FontWeight.Bold, c.ok)

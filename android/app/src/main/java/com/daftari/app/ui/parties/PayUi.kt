@@ -29,21 +29,31 @@ import com.daftari.app.core.PayMethods
 import com.daftari.app.ui.common.T
 import com.daftari.app.ui.theme.Df
 
-/** Each wallet's launcher icon (from its Google Play listing, 96 px webp); حاسب has no app of its own → a lettered badge. */
+/**
+ * The logo for a wallet or a transfer company (96 px webp in drawable-nodpi): wallets from their Google Play listings,
+ * حاسب from the logo the owner sent (1.1.2), الكريمي from its Play app, النجم / الحزمي from their official accounts.
+ * Anything typed under «أخرى» → null (a lettered badge where one is drawn).
+ */
 @DrawableRes fun walletIcon(name: String): Int? = when (PayMethods.wallet(name)?.key) {
     "onecash" -> R.drawable.wallet_onecash
     "jaib" -> R.drawable.wallet_jaib
     "jawali" -> R.drawable.wallet_jawali
     "floosak" -> R.drawable.wallet_floosak
+    "hasib" -> R.drawable.wallet_hasib
+    else -> companyIcon(name)
+}
+
+/** الكريمي / النجم / الحزمي (any spelling [PayMethods.company] knows), else null. */
+@DrawableRes fun companyIcon(name: String): Int? = if (name.isBlank()) null else when (PayMethods.company(name)) {
+    "الكريمي" -> R.drawable.transfer_kuraimi
+    "النجم" -> R.drawable.transfer_najm
+    "الحزمي" -> R.drawable.transfer_hazmi
     else -> null
 }
 
-private fun badgeColor(name: String): Color = when (PayMethods.wallet(name)?.key) {
-    "hasib" -> Color(0xFF0B7A3E)
-    else -> Color(0xFF3A3F4B)
-}
+private fun badgeColor(@Suppress("UNUSED_PARAMETER") name: String): Color = Color(0xFF3A3F4B)
 
-/** The wallet's icon, or a rounded badge with its first letter. */
+/** The wallet's / transfer company's logo, or a rounded badge with its first letter. */
 @Composable
 fun WalletLogo(name: String, size: Dp = 22.dp) {
     val icon = walletIcon(name)

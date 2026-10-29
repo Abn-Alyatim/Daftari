@@ -34,7 +34,18 @@ import com.daftari.app.ui.common.TopBar
 import com.daftari.app.ui.theme.Df
 import java.time.LocalDate
 
-/** أسعار الصرف: صنعاء / عدن, buy & sell, manual with the date; «تحديث من النت» is optional. */
+/** One currency row of the table: name | شراء | بيع (both editable; only شراء is ever used in a calculation). */
+@Composable
+private fun RateRow(name: String, code: String, buy: String, onBuy: (String) -> Unit, sell: String, onSell: (String) -> Unit) {
+    val c = Df.c
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Column(Modifier.weight(0.9f)) { T(name, 13.sp, FontWeight.Bold, maxLines = 1); T(code, 11.sp, color = c.muted, maxLines = 1) }
+        Field("", buy, onBuy, Modifier.weight(1f), keyboard = KeyboardType.Decimal, ltr = true)
+        Field("", sell, onSell, Modifier.weight(1f), keyboard = KeyboardType.Decimal, ltr = true)
+    }
+}
+
+/** أسعار الصرف: صنعاء / عدن, شراء | بيع, manual with the date; «تحديث من النت» fills both. Conversions use شراء only (1.1.2). */
 @Composable
 fun RatesScreen(rates: Rates, status: String?, onSave: (Rates) -> Unit, onFetch: () -> Unit, onBack: () -> Unit) {
     val c = Df.c
@@ -49,18 +60,19 @@ fun RatesScreen(rates: Rates, status: String?, onSave: (Rates) -> Unit, onFetch:
             T("آخر تحديث: \u2066${cur.date}\u2069", 12.sp, color = c.muted, modifier = Modifier.padding(top = 10.dp))
             DfCard(Modifier.padding(top = 10.dp).fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
-                    T("الريال السعودي — كم ريال يمني", 13.sp, FontWeight.Bold)
-                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Field("شراء", sb, { sb = it }, Modifier.weight(1f), keyboard = KeyboardType.Decimal, ltr = true); Field("بيع", ss, { ss = it }, Modifier.weight(1f), keyboard = KeyboardType.Decimal, ltr = true)
+                    T("كم ريالاً يمنياً مقابل الوحدة", 12.sp, color = c.muted)
+                    Row(Modifier.padding(top = 10.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        T("العملة", 12.5.sp, FontWeight.Bold, c.muted, modifier = Modifier.weight(0.9f))
+                        T("شراء", 13.sp, FontWeight.ExtraBold, if (c.isDark) c.primaryLight else c.primary, modifier = Modifier.weight(1f))
+                        T("بيع (للعلم)", 13.sp, FontWeight.ExtraBold, c.muted, modifier = Modifier.weight(1f))
                     }
-                    Spacer(Modifier.height(12.dp))
-                    T("الدولار — كم ريال يمني", 13.sp, FontWeight.Bold)
-                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Field("شراء", ub, { ub = it }, Modifier.weight(1f), keyboard = KeyboardType.Decimal, ltr = true); Field("بيع", us, { us = it }, Modifier.weight(1f), keyboard = KeyboardType.Decimal, ltr = true)
-                    }
+                    Spacer(Modifier.height(10.dp))
+                    RateRow("ريال سعودي", "SAR", sb, { sb = it }, ss, { ss = it })
+                    Spacer(Modifier.height(10.dp))
+                    RateRow("دولار أمريكي", "USD", ub, { ub = it }, us, { us = it })
                 }
             }
-            T("السداد بعملة أخرى يُحسب بسعر «الشراء»، والدين بعملة أخرى بسعر «البيع». يُحفظ السعر الذي حُسبت به كل عملية معها، ولا يتغير إذا عدّلت الجدول.", 11.5.sp, color = c.muted2, modifier = Modifier.padding(top = 10.dp))
+            T("تُحسب كل العمليات بسعر «الشراء» فقط، وسعر «البيع» للعلم ولا يدخل في أي حساب. يُحفظ السعر الذي حُسبت به كل عملية معها، ولا يتغير إذا عدّلت الجدول.", 11.5.sp, color = c.muted2, modifier = Modifier.padding(top = 10.dp))
             status?.let { T(it, 12.sp, FontWeight.SemiBold, if (it.contains("✓")) c.ok else c.warn, modifier = Modifier.padding(top = 10.dp)) }
             PrimaryButton("حفظ", Modifier.padding(top = 14.dp).fillMaxWidth(), R.drawable.ic_check) {
                 onSave(rates.copy(city = city).with(CityRates(city, sb.trim(), ss.trim(), ub.trim(), us.trim(), LocalDate.now().toString())))

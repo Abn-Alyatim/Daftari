@@ -45,6 +45,8 @@ data class BackupData(
     val log: List<AuditRecord> = emptyList(),
     /** 1 when it came from a 1.0.x JSON backup (migrated). */
     val migratedFrom: Int = 0,
+    /** 2.2 (1.1.2): the exchange-rate table (each city's شراء and بيع); blank in older files. */
+    val ratesJson: String = "",
 )
 
 data class Manifest(
@@ -72,8 +74,10 @@ object DaftariFile {
     const val FORMAT = "daftari-backup"
     const val SCHEMA = 2
     /** 2.1 (1.1.1): «محفظة» payments (method "wallet", transferCompany = wallet name, senderPhone), transfer number optional.
-     *  Additive only, so 1.1.0 still opens these files; 2.0 files are migrated on read ([com.daftari.app.core.PayMethods.migrate]). */
-    const val SCHEMA_MINOR = 1
+     *  Additive only, so 1.1.0 still opens these files; 2.0 files are migrated on read ([com.daftari.app.core.PayMethods.migrate]).
+     *  2.2 (1.1.2): optional "rates" object = the exchange-rate table, each city with شراء (sarBuy / usdBuy, the only rate used in
+     *  calculations) and بيع (sarSell / usdSell, for reference). Additive; older files simply have none. */
+    const val SCHEMA_MINOR = 2
     const val EXT = "daftari"
     const val MIME = "application/octet-stream"
     const val ITERATIONS = 120_000
@@ -140,6 +144,7 @@ object DaftariFile {
             d.reminders.forEach { r -> put(JSONObject().apply { put("id", r.id); put("customerId", r.partyId); put("at", r.at); put("text", r.text); put("done", r.done) }) }
         })
         put("log", AuditLog.toJsonArray(d.log))
+        if (d.ratesJson.isNotBlank()) runCatching { JSONObject(d.ratesJson) }.getOrNull()?.let { put("rates", it) }
     }
 
     fun write(d: BackupData, key: BackupKey? = null): ByteArray {
@@ -251,7 +256,7 @@ object DaftariFile {
             val reminders = (0 until rs.length()).map { i -> rs.getJSONObject(i).let { Reminder(it.getLong("id"), it.optLong("customerId"), it.getLong("at"), it.optString("text"), it.optBoolean("done")) } }
             val log = AuditLog.fromJsonArray(o.optJSONArray("log"))
             BackupData(o.optString("bookId"), o.optString("appVersion"), o.optLong("createdAtMillis"), o.optString("currency", "YER"), o.optString("business"),
-                o.optString("owner"), o.optString("role"), parties, entries, reminders, log)
+                o.optString("owner"), o.optString("role"), parties, entries, reminders, log, ratesJson = o.optJSONObject("rates")?.toString().orEmpty())
         } catch (e: Exception) { return ReadResult.Bad("بيانات النسخة ناقصة أو تالفة (${e.javaClass.simpleName})") }
         // integrity: unique ids, every operation belongs to a customer, no negative amounts, counts match the manifest
         val ids = data.parties.map { it.id }.toSet()

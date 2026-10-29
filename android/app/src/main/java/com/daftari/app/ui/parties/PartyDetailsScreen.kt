@@ -147,6 +147,7 @@ fun PartyDetailsScreen(s: PartySummary, entries: List<Entry>, attachments: List<
                     if (e.foreign) T("\u2066${Money.number(e.origAmount)} ${e.currency} × ${e.rate}\u2069", 11.5.sp, FontWeight.SemiBold, if (c.isDark) c.primaryLight else c.primary, maxLines = 1)
                     if (pay && (e.method == "transfer" || e.method == "wallet")) Row(Modifier.padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (e.method == "wallet") { WalletLogo(e.transferCo.ifBlank { "محفظة" }, 16.dp); Spacer(Modifier.width(5.dp)) }
+                        else if (companyIcon(e.transferCo) != null) { WalletLogo(e.transferCo, 16.dp); Spacer(Modifier.width(5.dp)) }
                         T(com.daftari.app.core.PayMethods.short(e), 11.5.sp, FontWeight.SemiBold, c.muted, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
                     }
                     if (pay && e.senderPhone.isNotBlank()) T("جوال المرسل \u2066${e.senderPhone}\u2069", 11.sp, color = c.muted2, maxLines = 1)

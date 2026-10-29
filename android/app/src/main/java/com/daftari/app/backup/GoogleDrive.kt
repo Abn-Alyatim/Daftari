@@ -129,7 +129,7 @@ object BackupMaker {
         val s = g.settings.current()
         val bookId = s.bookId.ifBlank { UUID.randomUUID().toString().also { id -> g.settings.update { it.copy(bookId = id) } } }
         return BackupData(bookId, BuildConfig.VERSION_NAME, System.currentTimeMillis(), s.currency.code, s.businessName, s.ownerName, s.role.name,
-            g.repo.allParties(), g.repo.allEntries(), g.reminders.all(), g.audit.all())
+            g.repo.allParties(), g.repo.allEntries(), g.reminders.all(), g.audit.all(), ratesJson = s.ratesJson)
     }
 
     suspend fun bytes(g: AppGraph): ByteArray {

@@ -27,15 +27,15 @@ data class CityRates(val city: String, val sarBuy: String, val sarSell: String, 
 /**
  * The exchange-rate table from الإعدادات: صنعاء and عدن (their markets differ a lot), manual, each with its date; optionally
  * refreshed from the internet. The rate actually used is stored on each operation, so changing the table never rewrites history.
- * A payment received in a foreign currency converts at the «شراء» (buy) rate, a debt given in one at «بيع» (sell).
+ * 1.1.2: every conversion (payment or debt) uses the «شراء» (buy) rate only; «بيع» (sell) is kept and shown for reference.
  */
 data class Rates(val city: String = SANAA, val cities: List<CityRates> = DEFAULTS) {
     val current: CityRates get() = cities.firstOrNull { it.city == city } ?: cities.first()
 
-    /** 1 [from] = ? [to]. */
-    fun rate(from: String, to: String, buy: Boolean = true): BigDecimal? {
+    /** 1 [from] = ? [to], always at the «شراء» rate (the «بيع» rate is for reference only). */
+    fun rate(from: String, to: String): BigDecimal? {
         if (from == to) return BigDecimal.ONE
-        val a = current.per(from, buy) ?: return null; val b = current.per(to, !buy) ?: return null
+        val a = current.per(from, buy = true) ?: return null; val b = current.per(to, buy = true) ?: return null
         return a.divide(b, 6, RoundingMode.HALF_UP).stripTrailingZeros()
     }
 

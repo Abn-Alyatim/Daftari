@@ -267,11 +267,11 @@ class Features110Test {
     // ------------------------------------------------------------ multi-currency
     @Test fun ratesSeededForSanaaAndAden() {
         val r = Rates()
-        assertEquals("139.5", Rates.plain(r.rate("SAR", "YER", buy = true)!!))
-        assertEquals("140.2", Rates.plain(r.rate("SAR", "YER", buy = false)!!))
-        assertEquals("533", Rates.plain(r.rate("USD", "YER", buy = true)!!))
+        assertEquals("139.5", Rates.plain(r.rate("SAR", "YER")!!))
+        assertEquals("140.2", r.current.sarSell)
+        assertEquals("533", Rates.plain(r.rate("USD", "YER")!!))
         val aden = r.copy(city = Rates.ADEN)
-        assertEquals("411", Rates.plain(aden.rate("SAR", "YER", true)!!)); assertEquals("1579", Rates.plain(aden.rate("USD", "YER", false)!!))
+        assertEquals("411", Rates.plain(aden.rate("SAR", "YER")!!)); assertEquals("1579", aden.current.usdSell)
         assertEquals("2026-10-30", r.current.date)
     }
 

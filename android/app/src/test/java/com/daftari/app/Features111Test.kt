@@ -130,7 +130,7 @@ class Features111Test {
     @Test fun backupRoundTripKeepsWalletFields() {
         val bytes = DaftariFile.write(sample())
         val r = DaftariFile.read(bytes) as ReadResult.Ok
-        assertEquals(2, r.manifest!!.schemaVersion); assertEquals(1, r.manifest!!.json.optInt("schemaMinor"))
+        assertEquals(2, r.manifest!!.schemaVersion); assertEquals(2, r.manifest!!.json.optInt("schemaMinor"))
         val w = r.data.entries.single { it.id == 2L }
         assertEquals("wallet", w.method); assertEquals("جوالي", w.transferCo); assertEquals("778899", w.transferNo); assertEquals("771234567", w.senderPhone)
         val t = r.data.entries.single { it.id == 3L }

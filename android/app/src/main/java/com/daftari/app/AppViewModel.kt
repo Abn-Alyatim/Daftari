@@ -623,6 +623,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val same = b.bookId.isNotBlank() && b.bookId == st.bookId
         val stats = repo.mergeBackup(b, same, "استعادة نسخة «$fileName» (${b.parties.size} زبون، ${b.entries.size} عملية)")
         g.reminders.merge(b.reminders)
+        // the rate table travels with the backup (2.2); a phone that already has its own table keeps it
+        if (b.ratesJson.isNotBlank() && st.ratesJson.isBlank()) g.settings.update { it.copy(ratesJson = com.daftari.app.core.Rates.parse(b.ratesJson).toJson()) }
         if (!st.onboarded || st.businessName.isBlank()) g.settings.update {
             it.copy(onboarded = true, businessName = it.businessName.ifBlank { b.business }, ownerName = it.ownerName.ifBlank { b.owner },
                 role = runCatching { Role.valueOf(b.role) }.getOrDefault(it.role), currency = com.daftari.app.core.Currency.of(b.currency),

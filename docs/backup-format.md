@@ -1,4 +1,4 @@
-# Daftari backup format (`.daftari`) — schema 2.1
+# Daftari backup format (`.daftari`) — schema 2.2
 
 One file format is used everywhere: Google Drive backups (OAuth, hidden app folder), «حفظ نسخة في Drive» / «استيراد نسخة»
 through the system picker, the daily local copy, sharing a backup over WhatsApp, onboarding «استرجاع نسخة», and giving the
@@ -88,6 +88,8 @@ Field notes
   * محفظة (2.1, app 1.1.1): `transferCompany` = wallet (ون كاش · جيب · جوالي · فلوسك · حاسب or a typed name), `transferNo` = transaction number (optional), `senderPhone` (optional).
 * `schemaMinor` (2.1+): additive changes only, so a 2.0 reader (app 1.1.0) still opens the file. On read, 2.0 rows are migrated:
   a number with no method becomes `transfer`, a wallet name typed as a transfer company becomes `wallet`, known spellings are made canonical.
+* `rates` (2.2, app 1.1.2, optional): the exchange-rate table `{"city": "صنعاء", "cities": [{"city", "sarBuy", "sarSell", "usdBuy", "usdSell", "date"}]}`.
+  Only the شراء (`*Buy`) rates are ever used in a calculation; بيع (`*Sell`) is kept for reference. On restore it is applied only when the phone has no table of its own.
 * `log` is the whole «السجل»: append-only; each row's `hash` = SHA-256 over its fields and `prevHash`, `before`/`after` are full JSON snapshots.
 * Old 1.0.x JSON backups (`{"app":"daftari", "parties":[…], "entries":[…]}`) are still accepted and migrated on read.
 

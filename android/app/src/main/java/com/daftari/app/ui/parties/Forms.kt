@@ -174,7 +174,7 @@ fun MoneySheet(
     var notify by remember { mutableStateOf(false) }
     val typed = Money.parse(amount) ?: 0
     val foreign = payCur != currency
-    LaunchedEffect(payCur) { rateText = if (foreign) rates.rate(payCur.code, currency.code, buy = !debt)?.let { com.daftari.app.core.Rates.plain(it) } ?: "" else "" }
+    LaunchedEffect(payCur) { rateText = if (foreign) rates.rate(payCur.code, currency.code)?.let { com.daftari.app.core.Rates.plain(it) } ?: "" else "" }
     val parsed = if (foreign) com.daftari.app.core.Rates.convert(typed, rateText.asciiDigits()) else typed
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(c.sheet)
@@ -212,7 +212,7 @@ fun MoneySheet(
                     Spacer(Modifier.width(6.dp)); T(currency.code, 12.5.sp, FontWeight.SemiBold, c.muted)
                 }
                 T(if (rateText.isBlank()) "اكتب سعر الصرف" else "\u200F= \u2066${Money.number(parsed)}\u2069 ${currency.labelAr}", 15.sp, FontWeight.ExtraBold, if (Df.c.isDark) c.primaryLight else c.primary)
-                T("سعر ${rates.current.city} (${if (debt) "بيع" else "شراء"}) · آخر تحديث \u2066${rates.current.date}\u2069", 11.sp, color = c.muted)
+                T("بسعر الشراء في ${rates.current.city} · آخر تحديث \u2066${rates.current.date}\u2069", 11.sp, color = c.muted)
             }
             T("الرصيد بعدها: ${Money.format(after, currency)}", 11.5.sp, color = c.muted)
         }
@@ -253,7 +253,7 @@ fun MoneySheet(
                     if (walletPay) com.daftari.app.core.PayMethods.WALLETS.forEach { w ->
                         WalletChip(w.label, w.label, !otherCo && transferCo == w.label) { transferCo = w.label; otherCo = false }
                     } else com.daftari.app.core.PayMethods.COMPANIES.forEach { co ->
-                        WalletChip(co, null, !otherCo && transferCo == co) { transferCo = co; otherCo = false }
+                        WalletChip(co, co, !otherCo && transferCo == co) { transferCo = co; otherCo = false }
                     }
                     WalletChip("أخرى", null, otherCo) { otherCo = true; transferCo = "" }
                 }
