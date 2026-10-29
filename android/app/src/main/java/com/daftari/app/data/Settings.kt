@@ -42,7 +42,19 @@ data class AppSettings(
     /** epoch millis when the free Pro trial started (0 = not yet). */
     val trialStartedAt: Long = 0,
     val alertsEnabled: Boolean = true,
+    /** «كلمة سر النسخ» is set: backups are encrypted (the derived key lives in BackupKeys, never the password). */
+    val backupEncrypted: Boolean = false,
+    /** Google Drive (hidden app folder) linked: the account e-mail, "" = not linked. */
+    val driveAccount: String = "",
+    val driveAuto: Boolean = true,
+    val lastDriveBackupAt: Long = 0,
+    /** a random id for this book, carried in backups so restoring on the same book merges by ids. */
+    val bookId: String = "",
+    val ratesJson: String = "",
+    /** 1.1.0 filled the currency of accounts from before multi-currency. */
+    val currencyFilled: Boolean = false,
 ) {
+    val rates: com.daftari.app.core.Rates get() = com.daftari.app.core.Rates.parse(ratesJson)
     val hasPassword: Boolean get() = passwordHash.isNotBlank()
 }
 
@@ -70,6 +82,13 @@ class SettingsStore(private val context: Context) {
         val proUntil = longPreferencesKey("pro_until")
         val trial = longPreferencesKey("trial_started")
         val alerts = booleanPreferencesKey("alerts")
+        val bEnc = booleanPreferencesKey("backup_enc")
+        val drive = stringPreferencesKey("drive_account")
+        val driveAuto = booleanPreferencesKey("drive_auto")
+        val lastDrive = longPreferencesKey("last_drive")
+        val bookId = stringPreferencesKey("book_id")
+        val rates = stringPreferencesKey("rates")
+        val curFilled = booleanPreferencesKey("currency_filled")
     }
 
     val settings: Flow<AppSettings> = context.store.data.map { it.toSettings() }
@@ -97,6 +116,13 @@ class SettingsStore(private val context: Context) {
         proUntil = this[K.proUntil] ?: 0L,
         trialStartedAt = this[K.trial] ?: 0L,
         alertsEnabled = this[K.alerts] ?: true,
+        backupEncrypted = this[K.bEnc] ?: false,
+        driveAccount = this[K.drive] ?: "",
+        driveAuto = this[K.driveAuto] ?: true,
+        lastDriveBackupAt = this[K.lastDrive] ?: 0L,
+        bookId = this[K.bookId] ?: "",
+        ratesJson = this[K.rates] ?: "",
+        currencyFilled = this[K.curFilled] ?: false,
     )
 
     suspend fun update(block: (AppSettings) -> AppSettings) {
@@ -108,6 +134,8 @@ class SettingsStore(private val context: Context) {
             p[K.phone] = n.phone; p[K.email] = n.email; p[K.token] = n.authToken; p[K.server] = n.serverOverride
             p[K.late] = n.lateAfterDays; p[K.backup] = n.lastBackupAt.toString(); p[K.demo] = n.demoData
             p[K.proUntil] = n.proUntil; p[K.trial] = n.trialStartedAt; p[K.alerts] = n.alertsEnabled
+            p[K.bEnc] = n.backupEncrypted; p[K.drive] = n.driveAccount; p[K.driveAuto] = n.driveAuto; p[K.lastDrive] = n.lastDriveBackupAt
+            p[K.bookId] = n.bookId; p[K.rates] = n.ratesJson; p[K.curFilled] = n.currencyFilled
         }
     }
 }

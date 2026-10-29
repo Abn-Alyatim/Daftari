@@ -54,6 +54,7 @@ data class SettingsActions(
     val onWipe: () -> Unit = {},
     val onPro: () -> Unit = {}, val onAlerts: (Boolean) -> Unit = {}, val onExportDb: () -> Unit = {}, val onDrive: () -> Unit = {}, val onRestore: () -> Unit = {},
     val onReports: () -> Unit = {},
+    val onLog: () -> Unit = {}, val onBackupScreen: () -> Unit = {}, val onMigrate: () -> Unit = {}, val onRates: () -> Unit = {},
 )
 
 @Composable
@@ -67,11 +68,11 @@ fun SettingsScreen(s: AppSettings, info: ServerInfo?, a: SettingsActions) {
                     Badge(s.ownerName.take(1).ifBlank { "؟" }, 50.dp, 18.sp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        T(s.ownerName.ifBlank { "بدون اسم" }, 14.sp, FontWeight.Bold)
+                        T(s.ownerName.ifBlank { "بلا اسم" }, 14.sp, FontWeight.Bold)
                         val line = listOf(if (s.phone.isNotBlank()) Phone.display(s.phone) else s.email, s.role.labelAr).filter { it.isNotBlank() }.joinToString(" · ")
                         T(line, 11.5.sp, color = c.muted, maxLines = 1)
                     }
-                    if (s.signedIn) Pill("متصل", c.ok, c.okSoft) else Pill("بدون حساب", c.muted, c.s3)
+                    if (s.signedIn) Pill("متصل", c.ok, c.okSoft) else Pill("بلا حساب", c.muted, c.s3)
                 }
             }
             SectionTitle("المظهر")
@@ -79,7 +80,7 @@ fun SettingsScreen(s: AppSettings, info: ServerInfo?, a: SettingsActions) {
                 ThemeCard("أسود وأزرق", Color.Black, Color(0xFF161A22), Brush.linearGradient(listOf(Color(0xFF1E5FD0), Color(0xFF0A1E4A))), s.theme == ThemeMode.DARK_BLUE, Modifier.weight(1f)) { a.onTheme(ThemeMode.DARK_BLUE) }
                 ThemeCard("أبيض وأسود", Color.White, Color(0xFFECEEF2), Brush.linearGradient(listOf(Color(0xFF1A1A1A), Color.Black)), s.theme == ThemeMode.LIGHT, Modifier.weight(1f)) { a.onTheme(ThemeMode.LIGHT) }
             }
-            SectionTitle("العملة")
+            SectionTitle("العملة الافتراضية للحسابات الجديدة")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Currency.entries.forEach { cur ->
                     val on = cur == s.currency
@@ -90,11 +91,23 @@ fun SettingsScreen(s: AppSettings, info: ServerInfo?, a: SettingsActions) {
                     ) { T(cur.code, 14.sp, FontWeight.ExtraBold); T(cur.labelAr, 10.5.sp, color = c.muted) }
                 }
             }
+            Row(Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, c.outline, RoundedCornerShape(14.dp)).clickable(onClick = a.onRates).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                DfIcon(R.drawable.ic_coins, 18.dp, if (c.isDark) c.primaryLight else c.text); Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    val r = s.rates.current
+                    T("أسعار الصرف · ${r.city}", 13.sp, FontWeight.Bold)
+                    T("سعودي ${r.sarBuy}/${r.sarSell} · دولار ${r.usdBuy}/${r.usdSell} · آخر تحديث \u2066${r.date}\u2069", 11.sp, color = c.muted, maxLines = 1)
+                }
+                DfIcon(R.drawable.ic_chevron_left, 16.dp, c.muted)
+            }
+            T("تغيير العملة لا يغيّر أي حساب قديم — كل حساب وكل عملية تحتفظ بعملتها.", 11.sp, color = c.muted2, modifier = Modifier.padding(top = 6.dp))
             SectionTitle(if (s.role == com.daftari.app.domain.Role.LANDLORD) "السوق" else "المحل")
             Group {
                 Item(if (s.role == com.daftari.app.domain.Role.LANDLORD) R.drawable.ic_building_2 else R.drawable.ic_store, s.businessName.ifBlank { "اضغط لإضافة الاسم" },
                     listOf(s.ownerName, if (s.shopCount > 0) "${s.shopCount} محل" else "").filter { it.isNotBlank() }.joinToString(" · "), a.onEditBusiness)
-                Item(R.drawable.ic_cloud_upload, "استيراد من ملف", "Word · Excel · CSV · PDF · صورة", a.onImport)
+                Item(R.drawable.ic_file_spreadsheet, "انتقل من تطبيق آخر", "Excel · CSV · JSON · SQLite — دون إعادة كتابة", a.onMigrate)
+                Line()
+                Item(R.drawable.ic_cloud_upload, "استيراد من Word أو صورة", "كشف التحصيل · PDF · صورة دفتر", a.onImport)
             }
             SectionTitle("الاشتراك")
             Group {
@@ -110,23 +123,27 @@ fun SettingsScreen(s: AppSettings, info: ServerInfo?, a: SettingsActions) {
                 Line()
                 Item(R.drawable.ic_chart_column, "التقارير", "إجمالي، تفصيلي، شهري، تصنيفات", a.onReports)
             }
-            SectionTitle("الأمان والنسخ")
+            SectionTitle("السجل والنسخ")
+            Group {
+                Item(R.drawable.ic_shield_check, "السجل", "كل إضافة وتعديل وحذف · لا يُحذف · بالبصمة والرمز", a.onLog)
+                Line()
+                Item(R.drawable.ic_cloud, "النسخ الاحتياطي و Google Drive", if (s.driveAccount.isNotBlank()) "مربوط: ${s.driveAccount}" else "نسخ يومي تلقائي · استرجاع · ملف \u2066.daftari\u2069", a.onBackupScreen)
+            }
+            SectionTitle("الأمان")
             Group {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconTile(R.drawable.ic_fingerprint); Spacer(Modifier.width(12.dp))
                     T("قفل التطبيق بالبصمة", 13.5.sp, FontWeight.Bold, modifier = Modifier.weight(1f)); Toggle(s.lockEnabled, a.onLock)
                 }
                 Line()
-                Item(R.drawable.ic_key_round, if (s.hasPassword) "تغيير كلمة السر" else "ضبط كلمة سر", "للتأكيد عند التعديل من مدين وفتح التطبيق", a.onPassword)
+                Item(R.drawable.ic_key_round, if (s.hasPassword) "تغيير كلمة السر" else "ضبط كلمة سر", "للتأكيد عند التعديل من «مدين» وعند فتح التطبيق", a.onPassword)
                 Line()
                 val last = if (s.lastBackupAt > 0) SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.US).format(Date(s.lastBackupAt)) else "لم يتم بعد"
                 Item(R.drawable.ic_cloud, "النسخ الاحتياطي على الخادم", "آخر نسخ: $last", a.onBackup)
                 Line()
-                Item(R.drawable.ic_cloud_upload, "حفظ نسخة في Google Drive", "نسخة يومية تلقائية على الجوال + أرسلها لـ Drive", a.onDrive)
+                Item(R.drawable.ic_download, "مشاركة نسخة (\u2066.daftari\u2069)", "أرسلها عبر واتساب أو احفظها", a.onExportDb)
                 Line()
-                Item(R.drawable.ic_download, "تصدير ملف قاعدة البيانات", "أرسله بالواتساب أو احفظه", a.onExportDb)
-                Line()
-                Item(R.drawable.ic_arrow_down_left, "استعادة من ملف", "ملف نسخة دفتري (.json)", a.onRestore)
+                Item(R.drawable.ic_arrow_down_left, "استعادة من ملف", "ملف \u2066.daftari\u2069 (أو نسخة قديمة \u2066.json\u2069)", a.onRestore)
             }
             SectionTitle("الخدمات")
             Group {
@@ -138,8 +155,8 @@ fun SettingsScreen(s: AppSettings, info: ServerInfo?, a: SettingsActions) {
             }
             Spacer(Modifier.height(14.dp))
             Group {
-                if (s.signedIn) { Item(R.drawable.ic_log_out, "تسجيل الخروج", "بياناتك تبقى على الجوال", a.onSignOut); Line() }
-                Item(R.drawable.ic_trash_2, "مسح كل البيانات", "يحذف كل شي من هذا الجوال", a.onWipe)
+                if (s.signedIn) { Item(R.drawable.ic_log_out, "تسجيل الخروج", "تبقى بياناتك على الجوال", a.onSignOut); Line() }
+                Item(R.drawable.ic_trash_2, "مسح كل البيانات", "يحذف كل شيء من هذا الجوال", a.onWipe)
             }
             T("${AppInfo.NAME} · ${AppInfo.NAME_EN} ${BuildConfig.VERSION_NAME}", 11.sp, color = c.muted2, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), align = androidx.compose.ui.text.style.TextAlign.Center)
         }

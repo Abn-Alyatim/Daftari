@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,7 @@ import com.daftari.app.R
 import com.daftari.app.core.Currency
 import com.daftari.app.core.Dates
 import com.daftari.app.core.Money
+import com.daftari.app.core.asciiDigits
 import com.daftari.app.core.Phone
 import com.daftari.app.domain.Party
 import com.daftari.app.domain.PartyKind
@@ -95,7 +97,7 @@ fun PartyEditScreen(
                 Field("رقم الجوال", phone, { phone = it }, Modifier.weight(1f), placeholder = "77xxxxxxx", keyboard = KeyboardType.Phone, ltr = true, icon = R.drawable.ic_phone)
                 if (onPickContact != null) { Spacer(Modifier.width(8.dp)); IconBox(R.drawable.ic_users, onPickContact, size = 52.dp) }
             }
-            if (landlord) Field("ايش يبيع", activity, { activity = it }, placeholder = "بهارات، أقمشة، عسل…", icon = R.drawable.ic_store)
+            if (landlord) Field("ماذا يبيع", activity, { activity = it }, placeholder = "بهارات، أقمشة، عسل…", icon = R.drawable.ic_store)
             if (landlord) {
                 T("الإيجار", 11.5.sp, FontWeight.Medium, Df.c.muted)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -111,7 +113,7 @@ fun PartyEditScreen(
             if (categories.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 categories.forEach { cat -> Chip(cat, category == cat) { category = cat } }
             }
-            Field("ملاحظات", notes, { notes = it }, singleLine = false, placeholder = "أي شي تبغى تتذكره")
+            Field("ملاحظات", notes, { notes = it }, singleLine = false, placeholder = "أي شيء تريد تذكّره")
             Spacer(Modifier.height(8.dp))
         }
         PrimaryButton("حفظ", Modifier.fillMaxWidth().padding(16.dp), R.drawable.ic_check) {
@@ -124,7 +126,7 @@ fun PartyEditScreen(
             ))
         }
     }
-    if (confirmDelete && onDelete != null) ConfirmBox("حذف ${base.name}؟", "ينحذف مع كل حركاته.", "حذف", { confirmDelete = false }) { confirmDelete = false; onDelete() }
+    if (confirmDelete && onDelete != null) ConfirmBox("حذف ${base.name}؟", "سيُحذف مع جميع حركاته.", "حذف", { confirmDelete = false }) { confirmDelete = false; onDelete() }
 }
 
 @Composable
@@ -141,10 +143,28 @@ fun ConfirmBox(title: String, body: String, ok: String, onDismiss: () -> Unit, o
 @Composable
 fun MoneySheet(
     debt: Boolean, title: String, subtitle: String, balance: Long, periodic: Long, currency: Currency, landlord: Boolean,
-    onClose: () -> Unit, onSave: (amount: Long, date: LocalDate, note: String, extra1: String, extra2: String, due: LocalDate?, notify: Boolean) -> Unit,
+    onClose: () -> Unit,
+    rates: com.daftari.app.core.Rates = com.daftari.app.core.Rates(),
+    onFx: (com.daftari.app.core.Fx?) -> Unit = {},
+    /** payment method: method, transfer company / wallet, number, sender phone */
+    onMethod: (com.daftari.app.core.PayInfo) -> Unit = {},
+    onReceipt: (() -> Unit)? = null, receiptAttached: Boolean = false,
+    transferUsed: (String) -> String? = { null },
+    initialCurrency: Currency? = null, initialMethod: String = "cash", initialAmount: String = "", initialTransfer: String = "", initialCompany: String = "", initialPhone: String = "",
+    onSave: (amount: Long, date: LocalDate, note: String, extra1: String, extra2: String, due: LocalDate?, notify: Boolean) -> Unit,
 ) {
     val c = Df.c
-    var amount by remember { mutableStateOf("") }
+    var payCur by remember { mutableStateOf(initialCurrency ?: currency) }
+    var method by remember { mutableStateOf(initialMethod) }
+    var transferNo by remember { mutableStateOf(initialTransfer) }
+    // «أخرى» is chosen when the starting name is not one of the chips
+    val known = initialCompany.isBlank() || initialCompany in com.daftari.app.core.PayMethods.COMPANIES || com.daftari.app.core.PayMethods.wallet(initialCompany) != null
+    var transferCo by remember { mutableStateOf(if (known) initialCompany else "") }
+    var otherCo by remember { mutableStateOf(!known) }
+    var otherName by remember { mutableStateOf(if (known) "" else initialCompany) }
+    var senderPhone by remember { mutableStateOf(initialPhone) }
+    var rateText by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf(initialAmount) }
     var note by remember { mutableStateOf("") }
     var collector by remember { mutableStateOf("") }
     var receipt by remember { mutableStateOf("") }
@@ -152,7 +172,10 @@ fun MoneySheet(
     var daysAgo by remember { mutableStateOf(0L) }
     var dueIn by remember { mutableStateOf<Long?>(null) }
     var notify by remember { mutableStateOf(false) }
-    val parsed = Money.parse(amount) ?: 0
+    val typed = Money.parse(amount) ?: 0
+    val foreign = payCur != currency
+    LaunchedEffect(payCur) { rateText = if (foreign) rates.rate(payCur.code, currency.code, buy = !debt)?.let { com.daftari.app.core.Rates.plain(it) } ?: "" else "" }
+    val parsed = if (foreign) com.daftari.app.core.Rates.convert(typed, rateText.asciiDigits()) else typed
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(c.sheet)
             .border(1.dp, c.outline2, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).navigationBarsPadding().imePadding()
@@ -168,19 +191,35 @@ fun MoneySheet(
             Modifier.padding(top = 16.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(c.s2).border(1.5.dp, c.primary, RoundedCornerShape(18.dp)).padding(vertical = 12.dp, horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            T("المبلغ (${currency.code})", 12.sp, color = c.muted)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                T("المبلغ", 12.sp, color = c.muted)
+                Currency.entries.forEach { cu -> Chip(cu.code, payCur == cu) { payCur = cu } }
+            }
             BasicTextField(
                 amount, { amount = it }, singleLine = true,
                 textStyle = TextStyle(color = c.text, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, fontFamily = NotoArabic, textAlign = TextAlign.Center, textDirection = TextDirection.Ltr),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), cursorBrush = SolidColor(c.primary), modifier = Modifier.fillMaxWidth(),
             )
             val after = if (debt) balance + parsed else balance - parsed
+            if (foreign) {
+                Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    T("1 ${payCur.code} =", 12.5.sp, FontWeight.SemiBold, c.muted)
+                    Spacer(Modifier.width(6.dp))
+                    Box(Modifier.width(110.dp).height(36.dp).clip(RoundedCornerShape(10.dp)).border(1.dp, c.outline2, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                        BasicTextField(rateText, { rateText = it }, singleLine = true, textStyle = TextStyle(color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = NotoArabic, textAlign = TextAlign.Center, textDirection = TextDirection.Ltr),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), cursorBrush = SolidColor(c.primary), modifier = Modifier.fillMaxWidth())
+                    }
+                    Spacer(Modifier.width(6.dp)); T(currency.code, 12.5.sp, FontWeight.SemiBold, c.muted)
+                }
+                T(if (rateText.isBlank()) "اكتب سعر الصرف" else "\u200F= \u2066${Money.number(parsed)}\u2069 ${currency.labelAr}", 15.sp, FontWeight.ExtraBold, if (Df.c.isDark) c.primaryLight else c.primary)
+                T("سعر ${rates.current.city} (${if (debt) "بيع" else "شراء"}) · آخر تحديث \u2066${rates.current.date}\u2069", 11.sp, color = c.muted)
+            }
             T("الرصيد بعدها: ${Money.format(after, currency)}", 11.5.sp, color = c.muted)
         }
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!debt && periodic > 0) Chip("${if (landlord) "يومي" else "القسط"} ${Money.number(periodic)}", false, Modifier.weight(1f)) { amount = amt(periodic) }
             if (!debt && balance > 0) Chip("الكل ${Money.number(balance)}", false, Modifier.weight(1f)) { amount = amt(balance) }
-            if (!debt && balance > 0) Chip("النص", false, Modifier.weight(1f)) { amount = amt(balance / 2) }
+            if (!debt && balance > 0) Chip("النصف", false, Modifier.weight(1f)) { amount = amt(balance / 2) }
             if (debt) listOf(500L, 1000L, 2000L, 5000L).forEach { v -> Chip(Money.number(v * 100), false, Modifier.weight(1f)) { amount = v.toString() } }
         }
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -193,9 +232,49 @@ fun MoneySheet(
             T("موعد السداد", 11.5.sp, FontWeight.Medium, c.muted)
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(null to "بدون", 7L to "أسبوع", 15L to "15 يوم", 30L to "شهر").forEach { (d, l) -> Chip(l, dueIn == d, Modifier.weight(1f)) { dueIn = d } }
+                listOf(null to "بلا", 7L to "أسبوع", 15L to "15 يوم", 30L to "شهر").forEach { (d, l) -> Chip(l, dueIn == d, Modifier.weight(1f)) { dueIn = d } }
             }
-        } else if (landlord) {
+        } else {
+            Spacer(Modifier.height(12.dp))
+            T("طريقة الدفع", 11.5.sp, FontWeight.Medium, c.muted)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("cash" to "نقداً", "transfer" to "حوالة", "wallet" to "محفظة", "other" to "غير ذلك").forEach { (k, l) ->
+                    Chip(l, method == k, Modifier.weight(1f)) { if (method != k) { transferCo = ""; otherCo = false; otherName = "" }; method = k }
+                }
+            }
+            val walletPay = method == "wallet"
+            if (method == "transfer" || walletPay) {
+                Spacer(Modifier.height(12.dp))
+                T(if (walletPay) "المحفظة" else "شركة الحوالة", 11.5.sp, FontWeight.Medium, c.muted)
+                Spacer(Modifier.height(6.dp))
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (walletPay) com.daftari.app.core.PayMethods.WALLETS.forEach { w ->
+                        WalletChip(w.label, w.label, !otherCo && transferCo == w.label) { transferCo = w.label; otherCo = false }
+                    } else com.daftari.app.core.PayMethods.COMPANIES.forEach { co ->
+                        WalletChip(co, null, !otherCo && transferCo == co) { transferCo = co; otherCo = false }
+                    }
+                    WalletChip("أخرى", null, otherCo) { otherCo = true; transferCo = "" }
+                }
+                if (otherCo) {
+                    Spacer(Modifier.height(8.dp))
+                    Field(if (walletPay) "اسم المحفظة" else "اسم الشركة", otherName, { otherName = it }, placeholder = if (walletPay) "اكتب اسم المحفظة" else "اكتب اسم شركة الحوالة")
+                }
+                Spacer(Modifier.height(10.dp))
+                Field(if (walletPay) "رقم العملية" else "رقم الحوالة", transferNo, { transferNo = it }, placeholder = "اختياري", keyboard = KeyboardType.Number, ltr = true, icon = R.drawable.ic_receipt)
+                transferUsed(transferNo.trim())?.let { T("⚠️ $it", 11.5.sp, FontWeight.SemiBold, c.warn, Modifier.padding(top = 4.dp)) }
+                if (walletPay) {
+                    Spacer(Modifier.height(8.dp))
+                    Field("جوال المرسل", senderPhone, { senderPhone = it }, placeholder = "اختياري", keyboard = KeyboardType.Phone, ltr = true, icon = R.drawable.ic_phone)
+                }
+                if (onReceipt != null) {
+                    Spacer(Modifier.height(8.dp))
+                    GhostButton(if (receiptAttached) "✓ أُرفقت صورة الإيصال بهذه الدفعة" else "إرفاق صورة الإيصال (اختياري)", Modifier.fillMaxWidth(), R.drawable.ic_image, height = 44.dp, onClick = onReceipt)
+                }
+            }
+        }
+        if (!debt && landlord) {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Field("اسم المحصل", collector, { collector = it }, Modifier.weight(1f), "اختياري")
@@ -206,11 +285,20 @@ fun MoneySheet(
         Field("", note, { note = it }, placeholder = "ملاحظة (اختياري)", icon = R.drawable.ic_pencil)
         Row(Modifier.padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.primarySoft).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             DfIcon(R.drawable.ic_si_whatsapp, 18.dp, androidx.compose.ui.graphics.Color(0xFF25D366)); Spacer(Modifier.width(10.dp))
-            T(if (debt) "أرسل له تفاصيل الدين بالواتساب" else "أرسل إيصال بالواتساب", 12.5.sp, FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            T(if (debt) "أرسل له تفاصيل الدين عبر واتساب" else "أرسل إيصالاً عبر واتساب", 12.5.sp, FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Toggle(notify) { notify = it }
         }
-        PrimaryButton(if (debt) "حفظ الدين" else "حفظ الدفعة", Modifier.padding(top = 16.dp).fillMaxWidth(), R.drawable.ic_check, enabled = parsed > 0) {
+        PrimaryButton(if (debt) "حفظ الدين" else "حفظ الدفعة", Modifier.padding(top = 16.dp).fillMaxWidth(), R.drawable.ic_check,
+            enabled = parsed > 0) {
+            if (!debt) {
+                val withRef = method == "transfer" || method == "wallet"
+                onMethod(com.daftari.app.core.PayInfo(method,
+                    company = if (withRef) (if (otherCo) otherName.trim() else transferCo) else "",
+                    ref = if (withRef) transferNo.trim() else "",
+                    phone = if (method == "wallet") senderPhone.trim() else ""))
+            }
             val date = LocalDate.now().minusDays(daysAgo)
+            onFx(if (foreign) com.daftari.app.core.Fx(payCur.code, typed, rateText.asciiDigits().trim()) else null)
             onSave(parsed, date, note.trim(), if (debt) items.trim() else collector.trim(), receipt.trim(), dueIn?.let { date.plusDays(it) }, notify)
         }
         Spacer(Modifier.height(4.dp))

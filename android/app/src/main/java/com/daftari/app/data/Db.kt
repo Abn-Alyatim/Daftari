@@ -42,18 +42,19 @@ data class PartyEntity(
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
     val deleted: Boolean = false,
+    @ColumnInfo(name = "currency", defaultValue = "") val currency: String = "",
 ) {
     fun toDomain() = Party(
         id = id, kind = PartyKind.valueOf(kind), shopNumber = shopNumber, name = name, phone = phone, activity = activity,
         periodicAmount = periodicAmount, period = runCatching { Period.valueOf(period) }.getOrDefault(Period.NONE),
-        startDate = LocalDate.ofEpochDay(startDay), notes = notes, location = location, openingBalance = openingBalance, unitsCount = unitsCount, creditLimit = creditLimit, category = category, createdAt = createdAt, updatedAt = updatedAt,
+        startDate = LocalDate.ofEpochDay(startDay), notes = notes, location = location, openingBalance = openingBalance, unitsCount = unitsCount, creditLimit = creditLimit, category = category, createdAt = createdAt, updatedAt = updatedAt, currency = currency,
     )
 
     companion object {
         fun from(p: Party) = PartyEntity(
             id = p.id, kind = p.kind.name, shopNumber = p.shopNumber, name = p.name, phone = p.phone, activity = p.activity,
             periodicAmount = p.periodicAmount, period = p.period.name, startDay = p.startDate.toEpochDay(), notes = p.notes,
-            location = p.location, openingBalance = p.openingBalance, unitsCount = p.unitsCount, creditLimit = p.creditLimit, category = p.category, createdAt = p.createdAt, updatedAt = p.updatedAt,
+            location = p.location, openingBalance = p.openingBalance, unitsCount = p.unitsCount, creditLimit = p.creditLimit, category = p.category, createdAt = p.createdAt, updatedAt = p.updatedAt, currency = p.currency,
         )
     }
 }
@@ -72,11 +73,18 @@ data class EntryEntity(
     @ColumnInfo(name = "due_day") val dueDay: Long? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     val deleted: Boolean = false,
+    @ColumnInfo(name = "currency", defaultValue = "") val currency: String = "",
+    @ColumnInfo(name = "orig_amount", defaultValue = "0") val origAmount: Long = 0,
+    @ColumnInfo(name = "rate", defaultValue = "") val rate: String = "",
+    @ColumnInfo(name = "method", defaultValue = "") val method: String = "",
+    @ColumnInfo(name = "transfer_no", defaultValue = "") val transferNo: String = "",
+    @ColumnInfo(name = "transfer_co", defaultValue = "") val transferCo: String = "",
+    @ColumnInfo(name = "sender_phone", defaultValue = "") val senderPhone: String = "",
 ) {
-    fun toDomain() = Entry(id, partyId, EntryType.valueOf(type), amount, LocalDate.ofEpochDay(day), note, collector, receiptNo, items, dueDay?.let { LocalDate.ofEpochDay(it) }, createdAt)
+    fun toDomain() = Entry(id, partyId, EntryType.valueOf(type), amount, LocalDate.ofEpochDay(day), note, collector, receiptNo, items, dueDay?.let { LocalDate.ofEpochDay(it) }, createdAt, currency, origAmount, rate, method, transferNo, transferCo, senderPhone)
 
     companion object {
-        fun from(e: Entry) = EntryEntity(e.id, e.partyId, e.type.name, e.amount, e.date.toEpochDay(), e.note, e.collector, e.receiptNo, e.items, e.dueDate?.toEpochDay(), e.createdAt)
+        fun from(e: Entry) = EntryEntity(e.id, e.partyId, e.type.name, e.amount, e.date.toEpochDay(), e.note, e.collector, e.receiptNo, e.items, e.dueDate?.toEpochDay(), e.createdAt, false, e.currency, e.origAmount, e.rate, e.method, e.transferNo, e.transferCo, e.senderPhone)
     }
 }
 
@@ -88,8 +96,9 @@ data class AttachmentEntity(
     @ColumnInfo(name = "display_name") val displayName: String,
     val mime: String,
     @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "entry_id", defaultValue = "0") val entryId: Long = 0,
 ) {
-    fun toDomain() = Attachment(id, partyId, fileName, displayName, mime, createdAt)
+    fun toDomain() = Attachment(id, partyId, fileName, displayName, mime, createdAt, entryId)
 }
 
 @Dao
@@ -124,6 +133,18 @@ interface LedgerDao {
     @Insert
     suspend fun insertEntry(e: EntryEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEntry(e: EntryEntity): Long
+
+    @Query("SELECT * FROM entries WHERE id = :id")
+    suspend fun entry(id: Long): EntryEntity?
+
+    @Query("SELECT * FROM entries WHERE party_id = :partyId AND deleted = 0")
+    suspend fun entriesOf(partyId: Long): List<EntryEntity>
+
+    @Query("UPDATE parties SET deleted = 0 WHERE id = :id")
+    suspend fun undeleteParty(id: Long)
+
     @Update
     suspend fun updateEntry(e: EntryEntity)
 
@@ -133,6 +154,9 @@ interface LedgerDao {
     @Query("UPDATE entries SET deleted = 1 WHERE party_id = :partyId")
     suspend fun deleteEntriesFor(partyId: Long)
 
+    @Query("SELECT * FROM attachments WHERE entry_id = :entryId ORDER BY created_at DESC")
+    suspend fun attachmentsOfEntry(entryId: Long): List<AttachmentEntity>
+
     @Query("SELECT * FROM attachments WHERE party_id = :partyId ORDER BY created_at DESC")
     fun observeAttachments(partyId: Long): Flow<List<AttachmentEntity>>
 
@@ -141,6 +165,12 @@ interface LedgerDao {
 
     @Query("DELETE FROM attachments WHERE id = :id")
     suspend fun deleteAttachment(id: Long)
+
+    @Query("SELECT * FROM entries WHERE deleted = 0 AND transfer_no = :no LIMIT 1")
+    suspend fun byTransfer(no: String): EntryEntity?
+
+    @Query("UPDATE parties SET currency = :code WHERE currency = ''")
+    suspend fun fillPartyCurrency(code: String): Int
 
     @Query("DELETE FROM entries")
     suspend fun wipeEntries()
@@ -152,13 +182,34 @@ interface LedgerDao {
     suspend fun wipeAttachments()
 }
 
-@Database(entities = [PartyEntity::class, EntryEntity::class, AttachmentEntity::class], version = 1, exportSchema = false)
+@Database(entities = [PartyEntity::class, EntryEntity::class, AttachmentEntity::class], version = 3, exportSchema = false)
 abstract class DaftariDb : RoomDatabase() {
     abstract fun dao(): LedgerDao
 
     companion object {
+        /** 1.1.0: per-account currency + per-operation original currency and rate. Existing rows keep their amounts. */
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE parties ADD COLUMN currency TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE entries ADD COLUMN currency TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE entries ADD COLUMN orig_amount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE entries ADD COLUMN rate TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE entries ADD COLUMN method TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE entries ADD COLUMN transfer_no TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE entries ADD COLUMN transfer_co TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        /** 1.1.1: e-wallet payments (sender phone) + receipt photos tied to the payment itself. */
+        val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE entries ADD COLUMN sender_phone TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE attachments ADD COLUMN entry_id INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun create(context: Context, inMemory: Boolean = false): DaftariDb =
             (if (inMemory) Room.inMemoryDatabaseBuilder(context, DaftariDb::class.java).allowMainThreadQueries()
-            else Room.databaseBuilder(context, DaftariDb::class.java, "daftari.db")).build()
+            else Room.databaseBuilder(context, DaftariDb::class.java, "daftari.db")).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
     }
 }

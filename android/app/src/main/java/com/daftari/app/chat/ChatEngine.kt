@@ -23,6 +23,8 @@ data class ChatMessage(
     val action: ChatAction? = null,
     /** null = not an action; true done; false cancelled */
     val actionDone: Boolean? = null,
+    /** «أي محمد تقصد؟»: one tap picks a customer and turns into a confirmation card */
+    val choices: List<ChatAction> = emptyList(),
     val id: Long = System.nanoTime(),
 )
 
@@ -76,16 +78,16 @@ object LocalAnswers {
         val owing = d.summaries.filter { it.balance > 0 }
         return when {
             listOf("اجمالي", "كم المتبقي", "كم لي", "مجموع", "كم عليهم", "كم الديون").any { t.contains(it) } ->
-                ChatMessage(false, "إجمالي المتبقي على الكل: ${m(d.totalOwed)}\nعدد اللي عليهم: ${owing.size} $noun، منهم ${d.lateCount} متأخر.")
+                ChatMessage(false, "إجمالي المتبقي على الكل: ${m(d.totalOwed)}\nعدد من عليهم ديون: ${owing.size} $noun، منهم ${d.lateCount} متأخر.")
             (t.contains("ما دفع") || t.contains("مادفع") || t.contains("لم يدفع")) && role == Role.LANDLORD -> {
                 val list = d.summaries.filter { it.paidToday == 0L && Ledger.accrued(it.party, today, today) > 0 }
-                ChatMessage(false, if (list.isEmpty()) "الكل دفع اليوم 👏" else "${list.size} ما دفعوا اليوم:",
-                    if (list.isEmpty()) null else ChatTable("ما دفعوا اليوم", listOf("المحل", "المستأجر", "المتبقي"),
+                ChatMessage(false, if (list.isEmpty()) "الجميع دفعوا اليوم 👏" else "${list.size} لم يدفعوا اليوم:",
+                    if (list.isEmpty()) null else ChatTable("لم يدفعوا اليوم", listOf("المحل", "المستأجر", "المتبقي"),
                         list.take(30).map { listOf(it.party.shopNumber, it.party.name, Money.plain(it.balance)) }))
             }
             t.contains("متاخر") || t.contains("اكثر") || t.contains("اعلى") -> {
                 val top = owing.sortedByDescending { it.balance }.take(10)
-                ChatMessage(false, if (top.isEmpty()) "ما في أحد عليه شي 👏" else "الأكثر عليهم:",
+                ChatMessage(false, if (top.isEmpty()) "لا يوجد أحد عليه دين 👏" else "الأكثر عليهم:",
                     if (top.isEmpty()) null else ChatTable("الأكثر عليهم", listOf(if (role == Role.LANDLORD) "المحل" else "م", "الاسم", "المتبقي", "الحالة"),
                         top.mapIndexed { i, s -> listOf(s.party.shopNumber.ifBlank { (i + 1).toString() }, s.party.name, Money.plain(s.balance), s.status.labelAr) }))
             }
@@ -93,7 +95,7 @@ object LocalAnswers {
                 ChatMessage(false, "تحصيل اليوم ${Dates.short(today)}: ${m(d.collectedToday)} من ${d.paidTodayCount} $noun." +
                     (if (d.newDebtToday > 0) "\nديون جديدة اليوم: ${m(d.newDebtToday)}" else ""))
             t.contains("الشهر") -> ChatMessage(false, "المحصّل هذا الشهر: ${m(d.collectedMonth)}")
-            t.contains("جدول") || t.contains("كشف") -> ChatMessage(false, "هذا جدول بكل الأرصدة:",
+            t.contains("جدول") || t.contains("كشف") -> ChatMessage(false, "هذا جدول بجميع الأرصدة:",
                 ChatTable("الأرصدة", listOf(if (role == Role.LANDLORD) "المحل" else "م", "الاسم", "المتبقي", "الحالة"),
                     d.summaries.sortedByDescending { it.balance }.mapIndexed { i, s -> listOf(s.party.shopNumber.ifBlank { (i + 1).toString() }, s.party.name, Money.plain(s.balance), s.status.labelAr) }))
             t.contains("مسدد") || t.contains("سدد") && t.contains("مين") -> {
@@ -104,5 +106,5 @@ object LocalAnswers {
         }
     }
 
-    const val NOT_READY = "الخدمة قيد التجهيز ⏳\nأقدر الحين أجاوب بدون إنترنت على: الإجمالي، المتأخرين، مين ما دفع اليوم، تحصيل اليوم، وجدول الأرصدة."
+    const val NOT_READY = "الخدمة قيد التجهيز ⏳\nيمكنني الآن أن أجيب دون إنترنت عن: الإجمالي، والمتأخرين، ومن لم يدفع اليوم، وتحصيل اليوم، وجدول الأرصدة."
 }

@@ -49,7 +49,7 @@ object Plan {
 
     fun statusText(s: AppSettings, now: Long = System.currentTimeMillis()): String = when {
         s.proUntil > now -> "برو مفعّل حتى ${java.time.Instant.ofEpochMilli(s.proUntil).atZone(java.time.ZoneId.systemDefault()).toLocalDate().let { Dates.full(it) }}"
-        inTrial(s, now) -> "تجربة برو مجانية · باقي ${trialDaysLeft(s, now)} يوم"
+        inTrial(s, now) -> "تجربة برو مجانية · متبقٍّ ${trialDaysLeft(s, now)} يوم"
         else -> "النسخة المجانية · حتى $FREE_PARTIES حساب"
     }
 }

@@ -21,7 +21,12 @@ val releaseStoreFile = signingValue("storeFile", "DF_STORE_FILE")
 // The Daftari server (accounts, OTP, chat, backup). -PdaftariServerUrl=https://... or gradle.properties.
 val serverUrl: String = (findProperty("daftariServerUrl") as String?)?.trim().orEmpty()
 // Optional Google web client id fallback; normally the server's /api/v1/info gives it.
-val googleClientId: String = (findProperty("daftariGoogleClientId") as String?)?.trim().orEmpty()
+// Google OAuth web client id (optional; Drive backup only needs the Android client registered in his Cloud project).
+// -PdaftariGoogleClientId=… or `daftari.googleClientId=…` in local.properties (never committed).
+val localProps = Properties().apply { rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
+// One command to rebuild with his id: DF_GOOGLE_WEB_CLIENT_ID=…apps.googleusercontent.com in local.properties, the environment or -P.
+val googleClientId: String = ((findProperty("DF_GOOGLE_WEB_CLIENT_ID") as String?) ?: System.getenv("DF_GOOGLE_WEB_CLIENT_ID")
+    ?: localProps.getProperty("DF_GOOGLE_WEB_CLIENT_ID") ?: (findProperty("daftariGoogleClientId") as String?) ?: localProps.getProperty("daftari.googleClientId"))?.trim().orEmpty()
 
 android {
     namespace = "com.daftari.app"
@@ -31,12 +36,13 @@ android {
         applicationId = "com.daftari.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 4
+        versionName = "1.1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         buildConfigField("String", "SERVER_URL", "\"" + serverUrl.replace("\"", "") + "\"")
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"" + googleClientId.replace("\"", "") + "\"")
+        buildConfigField("String", "DF_GOOGLE_WEB_CLIENT_ID", "\"" + googleClientId.replace("\"", "") + "\"")
     }
 
     signingConfigs {
@@ -118,6 +124,7 @@ dependencies {
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.googleid)
+    implementation(libs.play.services.auth)
     implementation(libs.work.runtime.ktx)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)

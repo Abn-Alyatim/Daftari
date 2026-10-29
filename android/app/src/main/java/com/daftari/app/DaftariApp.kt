@@ -17,9 +17,18 @@ import kotlinx.coroutines.flow.stateIn
 class AppGraph(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val db = DaftariDb.create(context)
-    val repo = LedgerRepository(db, context)
     val settings = SettingsStore(context)
     private val current = settings.settings.stateIn(scope, SharingStarted.Eagerly, null)
+    /** «السجل»: its own database file, never wiped. */
+    val auditDb = com.daftari.app.audit.AuditDb.create(context)
+    val audit = com.daftari.app.audit.AuditLog(auditDb.dao(), com.daftari.app.audit.PrefsAnchor(context))
+    val repo = LedgerRepository(db, context, audit) {
+        val s = current.value ?: settings.current()
+        com.daftari.app.data.Actor(listOf(s.ownerName.ifBlank { "المالك" }, s.phone).filter { it.isNotBlank() }.joinToString(" · "),
+            (android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).trim())
+    }
+    val reminders = com.daftari.app.backup.ReminderStore(context)
+    val backupKeys = com.daftari.app.backup.BackupKeys(context)
     val api = DaftariApi(
         baseUrl = { current.value?.serverOverride?.takeIf { it.isNotBlank() } ?: BuildConfig.SERVER_URL },
         token = { current.value?.authToken.orEmpty() },

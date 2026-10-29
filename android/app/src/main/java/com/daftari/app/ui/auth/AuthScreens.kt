@@ -117,9 +117,9 @@ fun LoginScreen(
                 Box(Modifier.width(1.dp).height(24.dp).background(c.outline2)); Spacer(Modifier.width(10.dp))
                 T("+967 🇾🇪", 14.sp, FontWeight.SemiBold, c.muted)
             }
-            PrimaryButton("أرسل رمز التحقق بالواتساب", Modifier.padding(top = 14.dp).fillMaxWidth(), R.drawable.ic_si_whatsapp, enabled = serverReady && Phone.normalize(phone) != null) { onSendOtp(phone, "whatsapp") }
+            PrimaryButton("أرسل رمز التحقق عبر واتساب", Modifier.padding(top = 14.dp).fillMaxWidth(), R.drawable.ic_si_whatsapp, enabled = serverReady && Phone.normalize(phone) != null) { onSendOtp(phone, "whatsapp") }
             Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.Center) {
-                T("ما عندك واتساب؟ ", 12.5.sp, color = c.muted)
+                T("ليس لديك واتساب؟ ", 12.5.sp, color = c.muted)
                 T("أرسله برسالة SMS", 12.5.sp, FontWeight.Bold, if (c.isDark) c.primaryLight else c.primary, Modifier.clickable(enabled = serverReady) { onSendOtp(phone, "sms") })
             }
             Row(Modifier.padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -132,10 +132,10 @@ fun LoginScreen(
                 DfIcon(R.drawable.ic_si_google, 19.dp, Color(0xFF4285F4)); Spacer(Modifier.width(8.dp))
                 T("المتابعة باستخدام Google", 15.sp, FontWeight.Bold, Color(0xFF111111))
             }
-            if (!serverReady) T("الدخول بالحساب قيد التجهيز (الخادم لم يُنشر بعد) — تقدر تبدأ الحين وبياناتك محفوظة على جوالك.", 11.5.sp, color = c.warn,
+            if (!serverReady) T("الدخول بالحساب قيد التجهيز (الخادم لم يُنشر بعد) — يمكنك البدء الآن وبياناتك محفوظة على جوالك.", 11.5.sp, color = c.warn,
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp), align = TextAlign.Center, lineHeight = 19.sp)
-            GhostButton("ابدأ بدون حساب", Modifier.padding(top = 12.dp).fillMaxWidth(), R.drawable.ic_smartphone, onClick = onOffline)
-            T("بياناتك محفوظة على جوالك أولاً وتشتغل بدون إنترنت · قفل بالبصمة", 11.sp, color = c.muted2, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), align = TextAlign.Center)
+            GhostButton("ابدأ دون حساب", Modifier.padding(top = 12.dp).fillMaxWidth(), R.drawable.ic_smartphone, onClick = onOffline)
+            T("بياناتك محفوظة على جوالك أولاً وتعمل دون إنترنت · قفل بالبصمة", 11.sp, color = c.muted2, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), align = TextAlign.Center)
         }
     }
 }
@@ -152,7 +152,7 @@ fun OtpScreen(phone: String, channel: String, devCode: String?, onBack: () -> Un
             DfIcon(if (channel == "sms") R.drawable.ic_message_square else R.drawable.ic_si_whatsapp, 30.dp, if (channel == "sms") c.primary else Color(0xFF25D366))
         }
         T("أدخل رمز التحقق", 22.sp, FontWeight.ExtraBold, modifier = Modifier.padding(top = 14.dp))
-        T("أرسلنا رمز من 6 أرقام ${if (channel == "sms") "برسالة SMS" else "لواتساب"} الرقم ${Phone.display(phone)}", 13.sp, color = c.muted, lineHeight = 22.sp)
+        T("أرسلنا رمزاً من 6 أرقام ${if (channel == "sms") "برسالة SMS" else "عبر واتساب"} الرقم ${Phone.display(phone)}", 13.sp, color = c.muted, lineHeight = 22.sp)
         if (devCode != null) T("وضع التجربة: الرمز $devCode", 12.sp, FontWeight.Bold, c.warn)
         Spacer(Modifier.height(20.dp))
         Box(Modifier.fillMaxWidth().height(60.dp).clip(RoundedCornerShape(16.dp)).background(c.s2).border(1.5.dp, c.primary, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
@@ -162,11 +162,11 @@ fun OtpScreen(phone: String, channel: String, devCode: String?, onBack: () -> Un
                 cursorBrush = SolidColor(c.primary), modifier = Modifier.fillMaxWidth())
         }
         Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            T("ما وصل؟", 12.5.sp, color = c.muted)
+            T("لم يصل؟", 12.5.sp, color = c.muted)
             Spacer(Modifier.width(8.dp))
             T("أعد الإرسال", 12.5.sp, FontWeight.Bold, if (c.isDark) c.primaryLight else c.primary, Modifier.clickable { onResend(channel) })
             Spacer(Modifier.weight(1f))
-            T(if (channel == "sms") "أرسل بالواتساب" else "أرسل SMS بدلاً منه", 12.5.sp, FontWeight.Bold, c.muted, Modifier.clickable { onResend(if (channel == "sms") "whatsapp" else "sms") })
+            T(if (channel == "sms") "أرسل عبر واتساب" else "أرسل SMS بدلاً منه", 12.5.sp, FontWeight.Bold, c.muted, Modifier.clickable { onResend(if (channel == "sms") "whatsapp" else "sms") })
         }
         Spacer(Modifier.height(18.dp))
         Field("البريد الإلكتروني (اختياري للنسخ الاحتياطي)", email, { email = it }, placeholder = "name@gmail.com", keyboard = KeyboardType.Email, ltr = true, icon = R.drawable.ic_mail)
@@ -187,8 +187,8 @@ fun SetupScreen(
     var currency by remember { mutableStateOf(Currency.YER) }
     var demo by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        T("خلّينا نجهّز دفترك", 22.sp, FontWeight.ExtraBold)
-        T("دقيقة وحدة وتبدأ. كل شي يتعدل بعدين من الإعدادات.", 13.sp, color = c.muted)
+        T("لنجهّز دفترك", 22.sp, FontWeight.ExtraBold)
+        T("دقيقة واحدة وتبدأ. يمكن تعديل كل شيء لاحقاً من الإعدادات.", 13.sp, color = c.muted)
         RolePicker(role, onRole)
         Field(if (landlord) "اسم السوق" else "اسم المحل / البقالة", business, { business = it }, placeholder = if (landlord) "مثلاً سوق الكحلاني" else "مثلاً بقالة الأمانة", icon = if (landlord) R.drawable.ic_building_2 else R.drawable.ic_store)
         Field(if (landlord) "اسم المؤجر" else "اسمك", owner, { owner = it }, placeholder = "الاسم", icon = R.drawable.ic_user)
@@ -199,8 +199,8 @@ fun SetupScreen(
             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 DfIcon(R.drawable.ic_cloud_upload, 22.dp, if (c.isDark) c.primaryLight else c.primary); Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    T("عندك كشف جاهز؟ ارفع ملف", 14.sp, FontWeight.Bold)
-                    T("Word أو Excel أو CSV أو PDF أو صورة دفتر — مدين يرتّبه", 11.5.sp, color = c.muted)
+                    T("لديك كشف جاهز؟ ارفع ملفاً", 14.sp, FontWeight.Bold)
+                    T("Word أو Excel أو CSV أو PDF أو صورة دفتر — «مدين» يرتّبه", 11.5.sp, color = c.muted)
                 }
             }
         }
@@ -208,7 +208,7 @@ fun SetupScreen(
             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     T("جرّب ببيانات تجريبية", 14.sp, FontWeight.Bold)
-                    T(if (landlord) "سوق بـ 27 محل عشان تشوف كل شي" else "بقالة بـ 9 زبائن عشان تشوف كل شي", 11.5.sp, color = c.muted)
+                    T(if (landlord) "سوق فيه 27 محلاً لتجربة كل الميزات" else "بقالة فيها 9 زبائن لتجربة كل الميزات", 11.5.sp, color = c.muted)
                 }
                 Toggle(demo) { demo = it }
             }

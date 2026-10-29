@@ -33,7 +33,7 @@ class DailyWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
             d.overLimit.firstOrNull()?.let { o -> Alerts.limitReached(applicationContext, o.party.id, o.party.name, Money.format(o.balance, s.currency), Money.format(o.party.creditLimit, s.currency)) }
             Alerts.dailySummary(applicationContext, Money.format(d.totalOwed, s.currency), d.lateCount)
         }
-        runCatching { writeLocalBackup(applicationContext, Backup.toJson(parties, entries, s.businessName, s.ownerName, s.role.name)) }
+        runCatching { writeLocalBackup(applicationContext, com.daftari.app.backup.BackupMaker.bytes(g)) }
         return Result.success()
     }
 
@@ -51,10 +51,10 @@ class DailyWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
 
         fun backupDir(ctx: Context) = File(ctx.filesDir, "backups").apply { mkdirs() }
 
-        fun writeLocalBackup(ctx: Context, json: String): File {
+        fun writeLocalBackup(ctx: Context, bytes: ByteArray): File {
             val dir = backupDir(ctx)
-            val f = File(dir, "daftari_backup_${LocalDate.now()}.json")
-            f.writeText(json)
+            val f = File(dir, "Daftari-${LocalDate.now()}.daftari")
+            f.writeBytes(bytes)
             dir.listFiles()?.sortedByDescending { it.name }?.drop(7)?.forEach { it.delete() }
             return f
         }

@@ -54,6 +54,20 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.daftari.app.core.Plan
+import com.daftari.app.core.cur
+import com.daftari.app.ui.backup.BackupActions
+import com.daftari.app.ui.backup.BackupPasswordDialog
+import com.daftari.app.ui.backup.BackupPreviewSheet
+import com.daftari.app.ui.backup.BackupScreen
+import com.daftari.app.ui.backup.BackupUi
+import com.daftari.app.ui.importer.MigratePreview
+import com.daftari.app.ui.importer.MigrateStart
+import com.daftari.app.ui.log.LogDetailScreen
+import com.daftari.app.ui.log.LogExportSheet
+import com.daftari.app.ui.log.LogListScreen
+import com.daftari.app.ui.log.RestoreConfirm
+import com.daftari.app.ui.log.SecureGate
+import com.daftari.app.ui.settings.RatesScreen
 import com.daftari.app.data.AppSettings
 import com.daftari.app.domain.Party
 import com.daftari.app.domain.PartySummary
@@ -109,7 +123,15 @@ sealed interface Route {
     data object Paywall : Route
     data object Password : Route
     data object Reports : Route
+    data object Log : Route
+    data class LogDetail(val seq: Long) : Route
+    data object Backup : Route
+    data object Migrate : Route
+    data object Rates : Route
 }
+
+/** A pending double-lock (fingerprint + PIN) and what to do after it. */
+private data class GateReq(val title: String, val subtitle: String, val onOk: () -> Unit)
 
 private enum class Onboard { LOGIN, OTP, SETUP }
 
@@ -169,7 +191,7 @@ private fun Root(vm: AppViewModel, s: AppSettings?, act: FragmentActivity, openP
             2 -> LockScreen(
                 hasBiometric = Biometric.available(act), hasPassword = s!!.hasPassword,
                 onBiometric = { Biometric.prompt(act, "فتح دفتري", "استخدم البصمة") { ok -> if (ok) vm.unlocked.value = true } },
-                onPassword = { pw -> vm.checkPassword(pw).also { if (it) vm.unlocked.value = true } },
+                onPassword = { pw -> vm.tryPassword(pw).also { if (it == null) vm.unlocked.value = true } },
             )
             else -> MainShell(vm, s!!, act, openParty)
         }
@@ -187,9 +209,21 @@ private fun OnboardingFlow(vm: AppViewModel, act: FragmentActivity) {
     val phone by vm.otpPhone.collectAsState()
     val channel by vm.otpChannel.collectAsState()
     val devCode by vm.otpDevCode.collectAsState()
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.importFile(uri, smart = info?.aiReady == true) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.openImport(uri) }
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.openBackup(uri) }
+    val importState by vm.importState.collectAsState()
     BackHandler(step != Onboard.LOGIN) { step = if (step == Onboard.SETUP) Onboard.LOGIN else Onboard.LOGIN }
     Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+        val imp = importState
+        if (imp != null) {
+            MigratePreview(imp.tables, imp.index, imp.plan, imp.remembered, imp.done, onTable = { vm.importSelectTable(it) }, onField = { i, f -> vm.importSetField(i, f) },
+                onLayout = { vm.importSetLayout(it) }, onConfirm = { vm.importConfirm() }, onBack = { vm.importState.value = null },
+                onFinish = { vm.importState.value = null; vm.finishSetup(role, "", defaultOwner, 0, com.daftari.app.core.Currency.YER, false); vm.startTrialIfNeeded() })
+            BackupOverlays(vm)
+            return@Box
+        }
+        Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f)) {
         when (step) {
             Onboard.LOGIN -> LoginScreen(
                 role = role, onRole = { role = it }, serverReady = info != null,
@@ -214,6 +248,13 @@ private fun OnboardingFlow(vm: AppViewModel, act: FragmentActivity) {
                 onDone = { business, owner, shops, currency, demo -> vm.finishSetup(role, business, owner, shops, currency, demo); vm.startTrialIfNeeded() },
                 onImport = { importLauncher.launch(arrayOf("*/*")) })
         }
+        }
+        if (step != Onboard.OTP) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            com.daftari.app.ui.common.GhostButton("استرجاع نسخة", Modifier.weight(1f), R.drawable.ic_arrow_down_left, height = 44.dp) { restoreLauncher.launch(arrayOf("*/*")) }
+            com.daftari.app.ui.common.GhostButton("انتقل من تطبيق آخر", Modifier.weight(1f), R.drawable.ic_file_spreadsheet, height = 44.dp) { importLauncher.launch(arrayOf("*/*")) }
+        }
+        }
+        BackupOverlays(vm)
     }
     @Suppress("UNUSED_EXPRESSION") ctx
 }
@@ -237,13 +278,31 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
     var pwPrompt by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     var picked by remember { mutableStateOf<Pair<String, String>?>(null) }
     val paywall = { push(Route.Paywall) }
+    var gate by remember { mutableStateOf<GateReq?>(null) }
+    var bioDone by remember { mutableStateOf(false) }
+    var restoreAsk by remember { mutableStateOf<com.daftari.app.audit.AuditRecord?>(null) }
+    var logActions by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var logQuery by remember { mutableStateOf("") }
+    var exportSheet by remember { mutableStateOf(false) }
+    var receiptAttached by remember { mutableStateOf(false) }
+    val logUnlocked by vm.logUnlocked.collectAsState()
+    /** fingerprint AND PIN, then [ok] (the log, every restore) */
+    fun secure(title: String, subtitle: String, ok: () -> Unit) { bioDone = false; gate = GateReq(title, subtitle, ok) }
+    val navImport by vm.navImport.collectAsState()
+    LaunchedEffect(navImport) {
+        if (navImport) { vm.navImport.value = false; val r = if (vm.importState.value != null) Route.Migrate else Route.Import; if (stack.lastOrNull() != r) push(r) }
+    }
+    LaunchedEffect(stack.lastOrNull()) { if (stack.none { it is Route.Log || it is Route.LogDetail }) vm.lockLog() }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33) act.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
     }
     LaunchedEffect(openParty.value) { openParty.value?.let { push(Route.Details(it)); openParty.value = null } }
-    BackHandler(stack.isNotEmpty() || money != null || tab != 0) {
+    BackHandler(stack.isNotEmpty() || money != null || tab != 0 || gate != null || restoreAsk != null || exportSheet) {
         when {
+            gate != null -> gate = null
+            restoreAsk != null -> restoreAsk = null
+            exportSheet -> exportSheet = false
             pwPrompt != null -> pwPrompt = null
             money != null -> money = null
             stack.isNotEmpty() -> pop()
@@ -264,7 +323,12 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
     }
     var smartPick by remember { mutableStateOf(true) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.importFile(uri, smartPick) }
-    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) confirm("استعادة نسخة تحذف البيانات الحالية") { vm.restoreFrom(uri) {} } }
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.openBackup(uri) }
+    val chatFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.openImport(uri, toChat = true) }
+    val migrateLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.openImport(uri) }
+    val saveBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(com.daftari.app.backup.DaftariFile.MIME)) { uri -> if (uri != null) vm.saveBackupTo(uri) }
+    val receiptLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> if (uri != null) { vm.pendingReceipt = uri; receiptAttached = true } }
+    val driveAuthLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res -> vm.driveAuthResult(res.data) }
     val contactLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri: Uri? ->
         if (uri != null) scope.launch {
             picked = withContext(Dispatchers.IO) { readContact(ctx, uri) }
@@ -303,7 +367,12 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                             val msgs by vm.chat.collectAsState(); val chatBusy by vm.chatBusy.collectAsState()
                             ChatScreen(msgs, chatBusy, role,
                                 onSend = { q -> if (vm.gate(Plan.Feature.AI_CHAT, onPaywall = paywall)) vm.ask(q) },
-                                onConfirm = { m -> m.action?.let { a -> confirm("تأكيد طلب مدين") { vm.runAction(m.id, a, true) } } },
+                                onConfirm = { m -> m.action?.let { a ->
+                                    if (a.offline && a.type !in setOf("undo", "import_backup")) vm.runAction(m.id, a, true)
+                                    else confirm("تأكيد طلب مدين") { vm.runAction(m.id, a, true) }
+                                } },
+                                onChoice = { m, a -> vm.pickChoice(m.id, a) },
+                                onAttach = { chatFileLauncher.launch(arrayOf("*/*")) },
                                 onCancel = { m -> m.action?.let { a -> vm.runAction(m.id, a, false) } },
                                 onExportTable = { t -> vm.export({ com.daftari.app.export.ReportBuilder.custom(t.title, t.columns, t.rows, s.businessName, s.ownerName, LocalDate.now()) }, ExportFormat.PDF) { f, fmt -> Share.file(ctx, f, fmt.mime) } },
                                 onClear = { vm.clearChat() })
@@ -328,6 +397,10 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                             onDrive = { if (vm.gate(Plan.Feature.BACKUP, onPaywall = paywall)) vm.exportDatabase { f -> Share.toDrive(ctx, f) } },
                             onRestore = { restoreLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
                             onReports = { tab = 3 },
+                            onLog = { push(Route.Log) },
+                            onBackupScreen = { push(Route.Backup) },
+                            onMigrate = { vm.importState.value = null; push(Route.Migrate) },
+                            onRates = { vm.ratesStatus.value = null; push(Route.Rates) },
                         ))
                     }
                 }
@@ -378,9 +451,51 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                     }
                     Route.Paywall -> PaywallScreen(Plan.statusText(s), s.currency, onBack = { pop() },
                         onActivate = { code -> vm.activatePro(code) { pop() } },
-                        onContact = { Share.whatsappText(ctx, AppInfo_SUPPORT, "السلام عليكم، أبغى أشترك في دفتري برو. رقمي: ${s.phone}") })
+                        onContact = { Share.whatsappText(ctx, AppInfo_SUPPORT, "السلام عليكم، أريد الاشتراك في دفتري برو. رقمي: ${s.phone}") })
                     Route.Password -> PasswordSetup(onBack = { pop() }) { pw -> vm.setPassword(pw); vm.say("تم حفظ كلمة السر ✅"); pop() }
                     Route.Reports -> ReportsMenu(onBack = { pop() }) { k -> push(Route.ReportOf(k.name)) }
+                    Route.Log -> {
+                        if (!logUnlocked) {
+                            LaunchedEffect(Unit) { if (gate == null) secure("السجل", "السجل محمي: يُفتح بالبصمة والرمز معاً") { vm.logUnlocked.value = true; vm.verifyLog() } }
+                            Box(Modifier.fillMaxSize())
+                        } else {
+                            val all by vm.logRecords.collectAsState()
+                            val ver by vm.logVerify.collectAsState()
+                            val shown = remember(all, logActions, logQuery) { vm.filterLog(all, AppViewModel.LogFilter(actions = logActions, query = logQuery)) }
+                            LogListScreen(shown, ver, logActions, logQuery, { logActions = it }, { logQuery = it }, onOpen = { push(Route.LogDetail(it.seq)) },
+                                onExport = { exportSheet = true }, onBack = { pop() })
+                        }
+                    }
+                    is Route.LogDetail -> {
+                        val all by vm.logRecords.collectAsState()
+                        val r = all.firstOrNull { it.seq == top.seq }
+                        if (r == null || !logUnlocked) LaunchedEffect(Unit) { pop() }
+                        else LogDetailScreen(r, all.firstOrNull { it.refSeq == r.seq && it.action == com.daftari.app.audit.Action.RESTORE }, onRestore = { restoreAsk = r }, onBack = { pop() })
+                    }
+                    Route.Backup -> {
+                        val files by vm.driveFiles.collectAsState(); val err by vm.driveError.collectAsState(); val setup by vm.driveSetupMissing.collectAsState()
+                        LaunchedEffect(s.driveAccount) { if (s.driveAccount.isNotBlank()) vm.driveList() }
+                        var pwDialog by remember { mutableStateOf(false) }
+                        BackupScreen(BackupUi(s.driveAccount, s.driveAuto, s.lastDriveBackupAt, s.lastBackupAt, files, err, setup, com.daftari.app.backup.GoogleDrive.webClientId.isNotBlank(), s.backupEncrypted),
+                            BackupActions(onBack = { pop() },
+                                onConnect = { vm.driveConnect { pi -> driveAuthLauncher.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build()) } },
+                                onBackupNow = { vm.driveBackupNow() }, onAuto = { vm.driveAuto(it) }, onRefresh = { vm.driveList() },
+                                onRestore = { f -> vm.driveRestore(f) }, onSaveToDrive = { saveBackupLauncher.launch(vm.backupFileName()) },
+                                onImportFile = { restoreLauncher.launch(arrayOf("*/*")) }, onPassword = { pwDialog = true }, onUnlink = { vm.driveUnlink() }))
+                        if (pwDialog) BackupPasswordDialog(if (s.backupEncrypted) "تغيير كلمة سر النسخ" else "كلمة سر النسخ", "تحمي ملف النسخة إذا وصل إلى أحد. لا تُحفظ في أي مكان — إذا نسيتها فلن تُفتح النسخ المشفّرة.", true,
+                            onDone = { vm.setBackupPassword(it); pwDialog = false }, onClear = if (s.backupEncrypted) ({ vm.setBackupPassword(null); pwDialog = false }) else null, onDismiss = { pwDialog = false })
+                    }
+                    Route.Migrate -> {
+                        val st by vm.importState.collectAsState()
+                        val imp = st
+                        if (imp == null) MigrateStart(onPick = { migrateLauncher.launch(arrayOf("*/*")) }, onBack = { pop() })
+                        else MigratePreview(imp.tables, imp.index, imp.plan, imp.remembered, imp.done, onTable = { vm.importSelectTable(it) }, onField = { i, f -> vm.importSetField(i, f) },
+                            onLayout = { vm.importSetLayout(it) }, onConfirm = { vm.importConfirm() }, onBack = { vm.importState.value = null; pop() }, onFinish = { vm.importState.value = null; pop(); tab = 1 })
+                    }
+                    Route.Rates -> {
+                        val status by vm.ratesStatus.collectAsState()
+                        RatesScreen(s.rates, status, onSave = { vm.saveRates(it) }, onFetch = { vm.fetchRates() }, onBack = { pop() })
+                    }
                 }
             }
         }
@@ -389,8 +504,10 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
             val sum = summaryOf(pid)
             if (sum != null) Box(Modifier.fillMaxSize().background(Df.c.bg.copy(alpha = 0.6f)).clickable { money = null }, contentAlignment = Alignment.BottomCenter) {
                 Box(Modifier.clickable(enabled = false) {}) {
-                    MoneySheet(debt, if (debt) "دين جديد" else "تسديد", sum.party.title, sum.balance, sum.party.periodicAmount, s.currency, landlord,
-                        onClose = { money = null }) { amount, date, note, extra1, extra2, due, _ ->
+                    MoneySheet(debt, if (debt) "دين جديد" else "تسديد", sum.party.title, sum.balance, sum.party.periodicAmount, sum.party.cur(s.currency), landlord,
+                        onClose = { money = null; receiptAttached = false; vm.pendingReceipt = null }, rates = s.rates, onFx = { vm.pendingFx = it }, onMethod = { vm.pendingMethod = it },
+                        onReceipt = { receiptLauncher.launch("image/*") }, receiptAttached = receiptAttached, transferUsed = { vm.transferWarning(it) }) { amount, date, note, extra1, extra2, due, _ ->
+                        receiptAttached = false
                         if (debt) vm.addCharge(pid, amount, date, note, extra1, due) else vm.addPayment(pid, amount, date, note, extra1, extra2)
                         money = null
                     }
@@ -399,6 +516,59 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
         }
         busy?.let { b -> if (stack.lastOrNull() != Route.Import) Box(Modifier.fillMaxSize().background(Df.c.bg.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) { com.daftari.app.ui.common.ClipLoading(b) } }
         pwPrompt?.let { (title, ok) -> PasswordPrompt(title, onDismiss = { pwPrompt = null }) { pw -> vm.checkPassword(pw).also { good -> if (good) { pwPrompt = null; ok() } } } }
+        restoreAsk?.let { r ->
+            RestoreConfirm(r, onConfirm = { restoreAsk = null; secure("تأكيد الاسترجاع", "الاسترجاع يتطلب البصمة والرمز") { vm.restoreFromLog(r.seq) } }, onDismiss = { restoreAsk = null })
+        }
+        if (exportSheet) {
+            val all by vm.logRecords.collectAsState(); val ver by vm.logVerify.collectAsState()
+            LogExportSheet(all.size, summaries.map { it.party.name }.distinct(), logActions,
+                preview = { f, t, p, a -> vm.filterLog(all, AppViewModel.LogFilter(f, t, p, a)).size },
+                onExport = { f, t, p, a, fmt ->
+                    exportSheet = false
+                    val filter = AppViewModel.LogFilter(f, t, p, a)
+                    val rows = vm.filterLog(all, filter)
+                    val format = when (fmt) { "XLSX" -> ExportFormat.XLSX; "DOCX" -> ExportFormat.DOCX; "PNG" -> ExportFormat.PNG; else -> ExportFormat.PDF }
+                    vm.export({ vm.logReport(rows, filter, ver) }, format) { file, ff -> Share.file(ctx, file, ff.mime, "كشف السجل") }
+                }, onDismiss = { exportSheet = false })
+        }
+        BackupOverlays(vm)
+        gate?.let { g0 ->
+            val bio = Biometric.state(act)
+            SecureGate(g0.title, g0.subtitle, bio, bioDone, s.hasPassword,
+                onBiometric = { Biometric.promptStrict(act, g0.title) { ok -> if (ok) bioDone = true } },
+                onEnroll = { runCatching { act.startActivity(Intent(if (Build.VERSION.SDK_INT >= 30) android.provider.Settings.ACTION_BIOMETRIC_ENROLL else android.provider.Settings.ACTION_SECURITY_SETTINGS)) } },
+                onPin = { pin -> if (!(bioDone || bio == com.daftari.app.ui.log.Bio.NO_HARDWARE)) "استخدم البصمة أولاً" else vm.tryPassword(pin).also { e -> if (e == null) { gate = null; g0.onOk() } } },
+                lockedNow = { vm.pinGuard.remainingMs().takeIf { it > 0 }?.let { vm.pinGuard.lockedText(it) } },
+                onSetPin = { pin -> vm.setPassword(pin); vm.say("تم ضبط الرمز ✅"); gate = null; g0.onOk() },
+                onCancel = { gate = null; if (stack.lastOrNull() == Route.Log && !vm.logUnlocked.value) pop() })
+        }
+    }
+}
+
+/** Backup preview (counts, checksum) and «كلمة سر النسخ» for an encrypted file — shown wherever a backup was opened. */
+@Composable
+private fun BackupOverlays(vm: AppViewModel) {
+    val preview by vm.backupPreview.collectAsState()
+    val needs by vm.backupNeedsPassword.collectAsState()
+    val result by vm.backupResult.collectAsState()
+    preview?.let { p ->
+        val debts = p.data.entries.count { it.type == com.daftari.app.domain.EntryType.CHARGE }
+        BackupPreviewSheet(p.fileName, p.data.parties.size, debts, p.data.entries.size - debts, p.data.log.size, p.data.reminders.size,
+            com.daftari.app.core.Dates.short(java.time.Instant.ofEpochMilli(p.data.createdAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate()), p.warnings,
+            p.manifest?.encrypted == true, onRestore = { vm.applyBackup() }, onDismiss = { vm.backupPreview.value = null })
+    }
+    needs?.let { (name, _) ->
+        BackupPasswordDialog("النسخة مشفّرة 🔒", "اكتب «كلمة سر النسخ» التي ضبطتها وقت النسخ ($name)", false, onDone = { vm.openBackupWithPassword(it) }, onClear = null, onDismiss = { vm.backupNeedsPassword.value = null })
+    }
+    result?.let { r ->
+        Box(Modifier.fillMaxSize().background(Df.c.bg.copy(alpha = 0.75f)).clickable { vm.backupResult.value = null }, contentAlignment = Alignment.Center) {
+            com.daftari.app.ui.common.DfCard(Modifier.padding(24.dp).fillMaxWidth(), border = Df.c.ok) {
+                Column(Modifier.padding(18.dp)) {
+                    T(r, 14.sp, FontWeight.SemiBold, lineHeight = 24.sp)
+                    com.daftari.app.ui.common.PrimaryButton("تم", Modifier.padding(top = 14.dp).fillMaxWidth()) { vm.backupResult.value = null }
+                }
+            }
+        }
     }
 }
 

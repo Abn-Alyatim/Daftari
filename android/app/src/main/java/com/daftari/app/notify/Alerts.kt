@@ -54,12 +54,19 @@ object Alerts {
         runCatching { NotificationManagerCompat.from(ctx).notify(id, b.build()) }
     }
 
+    /** A reminder «مدين» set («ذكرني أطالب محمد بكرة»). */
+    fun reminder(ctx: Context, id: Long, partyId: Long, text: String) {
+        post(ctx, 30_000 + id.toInt(), NotificationCompat.Builder(ctx, CH_DUE)
+            .setSmallIcon(R.drawable.ic_bell).setContentTitle("تذكير من مدين").setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text)).setAutoCancel(true).setContentIntent(open(ctx, partyId.takeIf { it > 0 })))
+    }
+
     fun limitReached(ctx: Context, partyId: Long, name: String, balanceText: String, limitText: String) {
         post(ctx, 10_000 + partyId.toInt(), NotificationCompat.Builder(ctx, CH_LIMIT)
             .setSmallIcon(R.drawable.ic_triangle_alert)
             .setContentTitle("⚠️ $name وصل سقف الدين")
             .setContentText("عليه $balanceText والحد $limitText")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("عليه $balanceText والحد المسموح $limitText. لا تعطه آجل جديد قبل ما يسدد، أو أرسل له تذكير من التطبيق."))
+            .setStyle(NotificationCompat.BigTextStyle().bigText("عليه $balanceText والحد المسموح $limitText. لا تعطه آجلاً جديداً قبل أن يسدّد، أو أرسل له تذكيراً من التطبيق."))
             .setPriority(NotificationCompat.PRIORITY_MAX).setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true).setContentIntent(open(ctx, partyId)))
     }

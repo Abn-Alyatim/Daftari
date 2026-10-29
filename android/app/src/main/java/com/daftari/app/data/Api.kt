@@ -47,6 +47,23 @@ data class ServerInfo(
     val shopNumber: String = "",
     val periodicAmount: Double = 0.0,
     val entryId: Long = 0,
+    // ---- 1.1.0: offline «مدين» (resolved on the phone; never sent by the server)
+    val partyId: Long = 0,
+    val minor: Long = 0,
+    val items: String = "",
+    val day: Long = 0,
+    val remindAt: Long = 0,
+    val auditSeq: Long = 0,
+    /** pre-rendered lines of the confirmation card */
+    val lines: List<String> = emptyList(),
+    val origCurrency: String = "",
+    val origMinor: Long = 0,
+    val rate: String = "",
+    val method: String = "",
+    val transferNo: String = "",
+    val offline: Boolean = false,
+    /** 1.1.1: wallet payments — sender phone (optional) */
+    val senderPhone: String = "",
 )
 @Serializable data class ImportRequest(val fileName: String, val mime: String, val text: String = "", val images: List<String> = emptyList(), val role: String = "")
 @Serializable data class ImportRowDto(
@@ -91,7 +108,7 @@ class DaftariApi(private val baseUrl: () -> String, private val token: () -> Str
 
     private fun url(path: String): String {
         val b = baseUrl().trimEnd('/')
-        if (b.isBlank()) throw ApiException("no_server", "الخادم غير مضبوط بعد — التطبيق يشتغل أوفلاين")
+        if (b.isBlank()) throw ApiException("no_server", "الخادم غير مضبوط بعد — التطبيق يعمل دون إنترنت")
         return b + path
     }
 
@@ -102,7 +119,7 @@ class DaftariApi(private val baseUrl: () -> String, private val token: () -> Str
         val resp = try {
             http.newCall(rb.build()).execute()
         } catch (e: IOException) {
-            throw ApiException("offline", "ما في اتصال بالإنترنت أو الخادم ما يرد")
+            throw ApiException("offline", "لا يوجد اتصال بالإنترنت أو أن الخادم لا يستجيب")
         }
         resp.use { r ->
             val text = r.body?.string().orEmpty()
@@ -111,8 +128,8 @@ class DaftariApi(private val baseUrl: () -> String, private val token: () -> Str
                 val code = obj?.get("code")?.jsonPrimitive?.content ?: "http_${r.code}"
                 val msg = obj?.get("message")?.jsonPrimitive?.content ?: when (r.code) {
                     404 -> "الخادم غير منشور بعد"
-                    429 -> "طلبات كثيرة، انتظر شوي وجرّب"
-                    in 500..599 -> "الخادم فيه مشكلة مؤقتة"
+                    429 -> "طلبات كثيرة، انتظر قليلاً ثم حاول مجدداً"
+                    in 500..599 -> "في الخادم مشكلة مؤقتة"
                     else -> "تعذّر الطلب (${r.code})"
                 }
                 throw ApiException(code, msg, r.code)

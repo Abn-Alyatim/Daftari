@@ -113,5 +113,5 @@ class ScreenshotTest {
         shot("13_import_review") { ImportScreen(ImportResult(rows, "سوق الكحلاني", "سامي الهلباء"), false, true, Role.LANDLORD, Currency.YER, {}, {}, {}) }
     }
     @Test fun s14_login() { shot("14_login") { LoginScreen(Role.SHOP_OWNER, {}, true, true, { _, _ -> }, {}, {}) } }
-    @Test fun s15_lock() { shot("15_lock") { LockScreen(false, true, {}, { false }) } }
+    @Test fun s15_lock() { shot("15_lock") { LockScreen(false, true, {}, { "كلمة السر غير صحيحة" }) } }
 }

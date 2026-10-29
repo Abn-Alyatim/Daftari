@@ -130,7 +130,7 @@ fun PartiesScreen(
                 }
             }
             if (list.isEmpty()) {
-                EmptyState(if (landlord) R.drawable.ic_store else R.drawable.ic_users, "القائمة فاضية", "أضف واحد، أو استورد ملف Word / Excel / صورة كشف.", "إضافة", onAdd)
+                EmptyState(if (landlord) R.drawable.ic_store else R.drawable.ic_users, "القائمة فارغة", "أضف واحداً، أو استورد ملف Word / Excel / صورة كشف.", "إضافة", onAdd)
             } else {
                 LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 170.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     items(shown, key = { it.party.id }) { s -> PartyCard(s, currency, landlord) { onOpen(s.party.id) } }
@@ -151,6 +151,7 @@ fun PartiesScreen(
 
 @Composable
 fun PartyCard(s: PartySummary, currency: Currency, landlord: Boolean, onClick: () -> Unit) {
+    @Suppress("NAME_SHADOWING") val currency = s.party.let { p -> if (p.currency.isBlank()) currency else Currency.of(p.currency) }
     val c = Df.c
     DfCard(Modifier.fillMaxWidth(), radius = 18.dp, onClick = onClick) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -159,7 +160,7 @@ fun PartyCard(s: PartySummary, currency: Currency, landlord: Boolean, onClick: (
             Column(Modifier.weight(1f)) {
                 T(s.party.name, 14.sp, FontWeight.Bold, maxLines = 1)
                 val sub = if (landlord) listOf(s.party.activity, if (s.party.periodicAmount > 0) "${s.party.period.labelAr} ${Money.format(s.party.periodicAmount, currency, false)}" else "").filter { it.isNotBlank() }.joinToString(" · ")
-                else listOf(s.lastPayment?.let { "آخر دفعة ${com.daftari.app.core.Dates.relative(it)}" } ?: "ما دفع بعد", if (s.party.creditLimit > 0 && s.balance >= s.party.creditLimit) "وصل الحد ⚠️" else if (s.party.category.isNotBlank()) s.party.category else "").filter { it.isNotBlank() }.joinToString(" · ")
+                else listOf(s.lastPayment?.let { "آخر دفعة ${com.daftari.app.core.Dates.relative(it)}" } ?: "لم يدفع بعد", if (s.party.creditLimit > 0 && s.balance >= s.party.creditLimit) "وصل الحد ⚠️" else if (s.party.category.isNotBlank()) s.party.category else "").filter { it.isNotBlank() }.joinToString(" · ")
                 T(sub, 11.5.sp, color = c.muted, maxLines = 1)
             }
             Column(horizontalAlignment = Alignment.End) {

@@ -82,7 +82,7 @@ fun ReportScreen(
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Image(preview.asImageBitmap(), null, Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Color.White), contentScale = ContentScale.FillWidth)
                 }
-            } else T("نجهّز المعاينة…", 13.sp, color = c.muted, modifier = Modifier.padding(40.dp))
+            } else T("جارٍ تجهيز المعاينة…", 13.sp, color = c.muted, modifier = Modifier.padding(40.dp))
         }
         if (report != null) T("${report.rows.size} سطر · ${report.subtitle}", 11.5.sp, color = c.muted, modifier = Modifier.padding(horizontal = 18.dp), maxLines = 1)
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

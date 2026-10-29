@@ -122,8 +122,9 @@ object Ledger {
         }
         for (e in mine) {
             if (e.date.isBefore(from) || e.date.isAfter(to)) continue
-            if (e.type == EntryType.CHARGE) evs += Ev(e.date, 1, e.note.ifBlank { "دين" }, e.amount, 0)
-            else evs += Ev(e.date, 2, e.note.ifBlank { "دفعة" }, 0, e.amount)
+            val fx = if (e.foreign) " (${com.daftari.app.core.Money.number(e.origAmount)} ${e.currency} × ${e.rate})" else ""
+            if (e.type == EntryType.CHARGE) evs += Ev(e.date, 1, listOf(e.note, e.items.replace('\n', '،')).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "دين" } + fx, e.amount, 0)
+            else evs += Ev(e.date, 2, com.daftari.app.core.PayMethods.statementText(e).ifBlank { "دفعة" } + fx, 0, e.amount)
         }
         evs.sortWith(compareBy<Ev>({ it.date }, { it.order }))
         var running = opening

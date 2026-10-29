@@ -56,9 +56,14 @@ import com.daftari.app.ui.theme.Df
 import com.daftari.app.ui.theme.NotoArabic
 
 fun actionLabel(a: ChatAction): String = when (a.type) {
-    "add_payment" -> "تسجيل دفعة ${a.amount.toLong()} لـ ${a.party}"
-    "add_debt", "add_charge" -> "تسجيل دين ${a.amount.toLong()} على ${a.party}"
-    "add_party" -> "إضافة ${a.name.ifBlank { a.party }}"
+    "add_payment" -> if (a.offline) "تسجيل سداد" else "تسجيل دفعة ${a.amount.toLong()} لـ ${a.party}"
+    "add_debt", "add_charge" -> if (a.offline) "تسجيل دين" else "تسجيل دين ${a.amount.toLong()} على ${a.party}"
+    "add_party_add_debt" -> "زبون جديد + دين"
+    "add_party_add_payment" -> "زبون جديد + سداد"
+    "reminder" -> "تذكير"
+    "undo" -> "تراجع عن آخر عملية"
+    "import_backup" -> "استرجاع النسخة"
+    "add_party" -> if (a.offline) "إضافة زبون" else "إضافة ${a.name.ifBlank { a.party }}"
     "edit_party" -> "تعديل بيانات ${a.party}"
     "delete_party" -> "حذف ${a.party}"
     "delete_entry" -> "حذف عملية"
@@ -69,13 +74,14 @@ fun actionLabel(a: ChatAction): String = when (a.type) {
 fun ChatScreen(
     messages: List<ChatMessage>, busy: Boolean, role: Role, onSend: (String) -> Unit, onConfirm: (ChatMessage) -> Unit, onCancel: (ChatMessage) -> Unit,
     onExportTable: (ChatTable) -> Unit, onClear: () -> Unit,
+    onChoice: (ChatMessage, com.daftari.app.data.ChatAction) -> Unit = { _, _ -> }, onAttach: (() -> Unit)? = null,
 ) {
     val c = Df.c
     var input by remember { mutableStateOf("") }
     val list = rememberLazyListState()
     LaunchedEffect(messages.size, busy) { if (messages.isNotEmpty()) list.animateScrollToItem(messages.size + (if (busy) 1 else 0) - 1 + 1) }
-    val suggestions = if (role == Role.LANDLORD) listOf("مين ما دفع اليوم؟", "أكثر المتأخرين", "إجمالي المتأخرات", "جدول تحصيل الشهر")
-    else listOf("مين أكثر واحد عليه؟", "تحصيل اليوم", "إجمالي الديون", "جدول الأرصدة")
+    val suggestions = if (role == Role.LANDLORD) listOf("من لم يدفع اليوم؟", "أكثر المتأخرين", "ملخص اليوم", "تراجع")
+    else listOf("سجّل على محمد رز وسكر بـ5000", "محمد سدّد 2000", "من الأكثر ديناً؟", "ملخص اليوم", "تراجع")
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(Color(0xFF1E6BFF), Color(0xFF0A2A7A)))), contentAlignment = Alignment.Center) {
@@ -84,7 +90,7 @@ fun ChatScreen(
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 T(AppInfo.ASSISTANT, 15.5.sp, FontWeight.Bold)
-                T("● يعرف بياناتك فقط", 11.5.sp, color = c.ok)
+                T("● يعمل دون إنترنت · يعرف بياناتك فقط", 11.5.sp, color = c.ok)
             }
             IconBox(R.drawable.ic_trash_2, onClear)
         }
@@ -94,10 +100,10 @@ fun ChatScreen(
                 Column(Modifier.fillMaxWidth().padding(top = 30.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     T("أهلاً، أنا ${AppInfo.ASSISTANT} 👋", 17.sp, FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
-                    T("اسألني عن حساباتك: مين عليه، كم تحصّل، أو اطلب جدول. وأقدر أضيف وأعدّل بعد تأكيد بصمتك.", 13.sp, color = c.muted, align = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 21.sp)
+                    T("اسألني عن حساباتك: من عليه دين، وكم حصّلت، أو اطلب جدولاً. ويمكنني الإضافة والتعديل بعد تأكيد بصمتك.", 13.sp, color = c.muted, align = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 21.sp)
                 }
             }
-            items(messages, key = { it.id }) { m -> Bubble(m, onConfirm, onCancel, onExportTable) }
+            items(messages, key = { it.id }) { m -> Bubble(m, onConfirm, onCancel, onExportTable, onChoice) }
             if (busy) item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) { DaftariClip(56.dp) } }
         }
         Column(Modifier.fillMaxWidth().background(c.bg).padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 10.dp)) {
@@ -109,6 +115,12 @@ fun ChatScreen(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onAttach != null) {
+                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).border(1.dp, c.outline, RoundedCornerShape(16.dp)).clickable(onClick = onAttach), contentAlignment = Alignment.Center) {
+                        DfIcon(R.drawable.ic_paperclip, 19.dp, c.muted)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
                 Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(16.dp)).background(c.s2).border(1.dp, c.outline, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
                     if (input.isEmpty()) T("اسأل ${AppInfo.ASSISTANT} عن حساباتك…", 13.sp, color = c.muted2)
                     BasicTextField(input, { input = it }, singleLine = true, textStyle = TextStyle(color = c.text, fontSize = 14.sp, fontFamily = NotoArabic), cursorBrush = SolidColor(c.primary), modifier = Modifier.fillMaxWidth())
@@ -123,7 +135,8 @@ fun ChatScreen(
 }
 
 @Composable
-private fun Bubble(m: ChatMessage, onConfirm: (ChatMessage) -> Unit, onCancel: (ChatMessage) -> Unit, onExportTable: (ChatTable) -> Unit) {
+private fun Bubble(m: ChatMessage, onConfirm: (ChatMessage) -> Unit, onCancel: (ChatMessage) -> Unit, onExportTable: (ChatTable) -> Unit,
+                   onChoice: (ChatMessage, com.daftari.app.data.ChatAction) -> Unit) {
     val c = Df.c
     // RTL: user bubbles on the left (outgoing, like WhatsApp in Arabic), «مدين» on the right
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (m.fromUser) Arrangement.End else Arrangement.Start) {
@@ -144,19 +157,34 @@ private fun Bubble(m: ChatMessage, onConfirm: (ChatMessage) -> Unit, onCancel: (
                 if (t.rows.size > 15) T("+${t.rows.size - 15} سطر في الملف", 11.sp, color = c.muted)
                 Row(Modifier.padding(top = 6.dp).clickable { onExportTable(t) }) { Pill("صدّر الجدول PDF / Word / صورة", if (c.isDark) c.primaryLight else c.primary, c.primarySoft, R.drawable.ic_file_text) }
             }
+            if (m.choices.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                m.choices.forEach { ch ->
+                    Row(Modifier.padding(top = 6.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, c.outline2, RoundedCornerShape(12.dp)).clickable { onChoice(m, ch) }.padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        DfIcon(R.drawable.ic_user, 16.dp, if (c.isDark) c.primaryLight else c.primary); Spacer(Modifier.width(8.dp))
+                        T(ch.party, 13.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
+                        DfIcon(R.drawable.ic_chevron_left, 14.dp, c.muted)
+                    }
+                }
+            }
             m.action?.let { a ->
                 Spacer(Modifier.height(8.dp))
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.s1).border(1.dp, c.outline2, RoundedCornerShape(14.dp)).padding(12.dp)) {
+                    val secure = !a.offline || a.type in setOf("undo", "import_backup")
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        T("عملية مقترحة", 11.5.sp, color = c.muted, modifier = Modifier.weight(1f))
-                        Pill("تحتاج تأكيد", c.warn, c.warnSoft, R.drawable.ic_lock)
+                        T(if (a.offline) "بطاقة تأكيد" else "عملية مقترحة", 11.5.sp, color = c.muted, modifier = Modifier.weight(1f))
+                        Pill(if (a.offline) "دون إنترنت ✓" else "تحتاج إلى تأكيد", if (a.offline) c.ok else c.warn, c.warnSoft, if (a.offline) null else R.drawable.ic_lock)
                     }
                     T(actionLabel(a), 14.sp, FontWeight.Bold, modifier = Modifier.padding(vertical = 6.dp))
+                    a.lines.forEach { l -> T(l, 12.5.sp, FontWeight.Medium, c.text, modifier = Modifier.padding(bottom = 3.dp), lineHeight = 19.sp) }
+                    if (a.lines.isNotEmpty()) Spacer(Modifier.height(6.dp))
                     when (m.actionDone) {
                         true -> T("✓ تم", 13.sp, FontWeight.Bold, c.ok)
                         false -> T("أُلغيت", 13.sp, FontWeight.Bold, c.muted)
                         null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            PrimaryButton("تأكيد بالبصمة", Modifier.weight(1f), R.drawable.ic_fingerprint, height = 40.dp) { onConfirm(m) }
+                            if (secure) PrimaryButton("تأكيد بالبصمة", Modifier.weight(1f), R.drawable.ic_fingerprint, height = 40.dp) { onConfirm(m) }
+                            else PrimaryButton("تأكيد", Modifier.weight(1f), R.drawable.ic_check, height = 40.dp) { onConfirm(m) }
                             PrimaryButton("إلغاء", Modifier.width(80.dp), bg = c.s3, fg = c.text, height = 40.dp) { onCancel(m) }
                         }
                     }

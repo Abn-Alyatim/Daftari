@@ -12,3 +12,24 @@ cd android
 DF_STORE_FILE=... DF_STORE_PASSWORD=... DF_KEY_ALIAS=... DF_KEY_PASSWORD=... ./gradlew testDebugUnitTest assembleRelease
 cd ../server && npm install && npm test
 ```
+
+Google sign-in / Drive: put `DF_GOOGLE_WEB_CLIENT_ID=…apps.googleusercontent.com` in `android/local.properties` (never committed), or pass
+`-PDF_GOOGLE_WEB_CLIENT_ID=…` / the env var of the same name, then rebuild — no code change. Drive backup itself uses
+`AuthorizationClient` with the `drive.appdata` scope and only needs the **Android** OAuth client in Google Cloud
+(package `com.daftari.app` + the signing SHA-1) and the Google Drive API enabled.
+
+## 1.1.0
+- Google Drive: نسخ احتياطي الآن، نسخ يومي تلقائي لما يتوفر نت، «استرجاع» بقائمة النسخ بالتاريخ (مجلد مخفي appDataFolder). وبدون أي إعداد: «حفظ نسخة في Drive» و«استيراد نسخة» عبر قائمة الجوال.
+- صيغة نسخة واحدة `.daftari` (ZIP: manifest.json + data.json، تشفير اختياري AES-256-GCM) — راجع `docs/backup-format.md`. الاسترجاع يدمج بدون تكرار، ومتاح من أول تشغيل.
+- «مدين» يشتغل بدون نت: فهم عربي (لهجة يمنية/خليجية) لإضافة دين/سداد، الرصيد، كشف الحساب، الأكثر عليهم، ملخص اليوم، زبون جديد، تذكير، تراجع — بطاقة تأكيد قبل أي حفظ. يفتح ملف `.daftari` ويجاوب عنه.
+- «انتقل من تطبيق آخر»: CSV / Excel (.xlsx و .xls القديم) / JSON / SQLite، أي شكل (عملية بكل سطر، رصيد لكل زبون، تفصيل شهري)، تعديل ربط الأعمدة ويتذكره، تخطي المكرر، ومطابقة الإجمالي.
+- «السجل»: دائم ومختوم SHA-256 بسلسلة، لقطات قبل/بعد، ما ينحذف حتى مع مسح البيانات، داخل النسخ، استرجاع أي محذوف أو معدّل. يفتح بالبصمة + الرمز معاً. «كشف السجل» PDF/Excel بفلاتر.
+- عملات لكل عملية (ريال يمني / سعودي / دولار) بسعر صنعاء أو عدن المحفوظ مع العملية، وطريقة الدفع (نقداً / حوالة برقمها وشركتها وصورة الإيصال) مع تنبيه رقم الحوالة المكرر.
+
+## 1.1.1
+- طريقة دفع جديدة «محفظة»: ون كاش، جيب، جوالي، فلوسك، حاسب (كل واحدة بأيقونتها) أو «أخرى» باسم مكتوب، ورقم العملية وجوال المرسل (اختياريان) وصورة الإيصال.
+- الحوالة: الكريمي / النجم / الحزمي فقط، أو «أخرى» باسم مكتوب. رقم الحوالة/العملية اختياري، وتنبيه الرقم المكرر يظهر عند كتابته.
+- الطريقة والشركة/المحفظة والرقم تظهر في الكشف وPDF وExcel و«السجل» والنسخ `.daftari` (المخطط 2.1، مع ترحيل نسخ 2.0) واستيراد ملفات التطبيقات الأخرى، و«مدين» يفهم «محمد سدد 5000 جوالي رقم 778899».
+- صورة الإيصال تُربط بالدفعة نفسها (وتظهر تحتها في الحركات)، وقفل الرمز بعد 5 محاولات خاطئة لمدة 5 دقائق محفوظ ولا يُلغى بإغلاق الشاشة، وإصلاح أقواس «(.daftari)».
+- كل نصوص التطبيق بالعربية الفصحى، و«مدين» يفهم اللهجة ويرد بالفصحى (اختبار يمنع عودة اللهجة).
+- أيقونات المحافظ من صفحات Google Play: ONE Cash (`com.one.onecustomer`)، Jaib (`com.ahd.jaib`)، Jawali (`com.ama.wecashmobileapp`)، Floosak (`co.ysys.floosak`). «حاسب» خدمة من بنك الكريمي بلا تطبيق مستقل، فلها شارة بحرف «ح».

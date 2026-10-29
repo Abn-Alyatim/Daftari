@@ -60,24 +60,24 @@ import com.daftari.app.ui.theme.Df
 // ------------------------------------------------------------------ app lock
 
 @Composable
-fun LockScreen(hasBiometric: Boolean, hasPassword: Boolean, onBiometric: () -> Unit, onPassword: (String) -> Boolean) {
+fun LockScreen(hasBiometric: Boolean, hasPassword: Boolean, onBiometric: () -> Unit, onPassword: (String) -> String?) {
     val c = Df.c
     var pw by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { if (hasBiometric) onBiometric() }
     Column(Modifier.fillMaxSize().background(c.bg).imePadding().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Box(Modifier.size(84.dp).clip(RoundedCornerShape(26.dp)).border(1.dp, c.outline2, RoundedCornerShape(26.dp)), contentAlignment = Alignment.Center) {
             DfIcon(R.drawable.ic_lock, 34.dp, if (c.isDark) c.primaryLight else c.primary)
         }
         Spacer(Modifier.height(18.dp))
-        T("دفترك مقفول", 20.sp, FontWeight.ExtraBold)
+        T("دفترك مقفل", 20.sp, FontWeight.ExtraBold)
         T("افتحه بالبصمة أو كلمة السر", 13.sp, color = c.muted)
         Spacer(Modifier.height(26.dp))
         if (hasPassword) {
-            Field("", pw, { pw = it; error = false }, Modifier.fillMaxWidth(), placeholder = "كلمة السر", keyboard = KeyboardType.NumberPassword, ltr = true, icon = R.drawable.ic_key_round)
-            if (error) T("كلمة السر غير صحيحة", 12.sp, FontWeight.SemiBold, c.bad, Modifier.padding(top = 6.dp))
+            Field("", pw, { pw = it; error = null }, Modifier.fillMaxWidth(), placeholder = "كلمة السر", keyboard = KeyboardType.NumberPassword, ltr = true, icon = R.drawable.ic_key_round)
+            error?.let { T(it, 12.sp, FontWeight.SemiBold, c.bad, Modifier.padding(top = 6.dp), align = TextAlign.Center) }
             Spacer(Modifier.height(12.dp))
-            PrimaryButton("فتح", Modifier.fillMaxWidth()) { if (!onPassword(pw)) error = true }
+            PrimaryButton("فتح", Modifier.fillMaxWidth()) { onPassword(pw)?.let { error = it; pw = "" } }
             Spacer(Modifier.height(10.dp))
         }
         if (hasBiometric) GhostButton("البصمة", Modifier.fillMaxWidth(), R.drawable.ic_fingerprint, onClick = onBiometric)
@@ -141,7 +141,7 @@ fun ImportScreen(
     Column(Modifier.fillMaxSize()) {
         TopBar("رفع ملف", subtitle = "Word · Excel · CSV · PDF · صورة دفتر", centered = true, start = { IconBox(R.drawable.ic_arrow_right, onBack) })
         when {
-            busy -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ClipLoading("نقرأ الملف ونرتّب البيانات…") }
+            busy -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ClipLoading("جارٍ قراءة الملف وترتيب البيانات…") }
             result == null -> Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
                 DfCard(Modifier.fillMaxWidth(), onClick = { onPick(true) }) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -160,13 +160,13 @@ fun ImportScreen(
                         DfIcon(R.drawable.ic_file_spreadsheet, 26.dp)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            T("رفع جدول بدون إنترنت", 15.sp, FontWeight.Bold)
+                            T("رفع جدول دون إنترنت", 15.sp, FontWeight.Bold)
                             T("جداول Word / Excel / CSV المرتبة (مثل حافظة التحصيل) تُقرأ على جوالك مباشرة", 12.sp, color = c.muted, lineHeight = 18.sp)
                         }
                     }
                 }
                 Spacer(Modifier.height(18.dp))
-                T("بعد القراءة تراجع الجدول وتعدّل أي سطر قبل الحفظ. لا يُحفظ شيء بدون تأكيدك.", 12.5.sp, color = c.muted, lineHeight = 20.sp)
+                T("بعد القراءة تراجع الجدول وتعدّل أي سطر قبل الحفظ. لا يُحفظ شيء دون تأكيدك.", 12.5.sp, color = c.muted, lineHeight = 20.sp)
             }
             else -> {
                 val rows = remember(result) { mutableStateListOf(*result.rows.toTypedArray()) }
@@ -241,7 +241,7 @@ fun PaywallScreen(statusText: String, currency: Currency, onBack: () -> Unit, on
                 }
             }
             Spacer(Modifier.height(8.dp))
-            T("الدفع: حوّل المبلغ ثم أرسل الإيصال، وتوصلك كود تفعيل. (الدفع من داخل المتجر قيد التجهيز)", 12.5.sp, color = c.muted, lineHeight = 20.sp)
+            T("الدفع: حوّل المبلغ ثم أرسل الإيصال، وسيصلك كود التفعيل. (الدفع من داخل المتجر قيد التجهيز)", 12.5.sp, color = c.muted, lineHeight = 20.sp)
             Spacer(Modifier.height(10.dp))
             GhostButton("طلب الاشتراك عبر واتساب", Modifier.fillMaxWidth(), R.drawable.ic_si_whatsapp, onClick = onContact)
             Spacer(Modifier.height(14.dp))
@@ -279,7 +279,7 @@ fun ReportsMenu(onBack: () -> Unit, onPick: (ReportKind) -> Unit) {
                     }
                 }
             }
-            T("كل تقرير يُصدَّر PDF أو Word أو Excel أو صورة، ويُرسل بالواتساب.", 12.sp, color = Df.c.muted, modifier = Modifier.padding(top = 6.dp))
+            T("كل تقرير يُصدَّر PDF أو Word أو Excel أو صورة، ويُرسل عبر واتساب.", 12.sp, color = Df.c.muted, modifier = Modifier.padding(top = 6.dp))
         }
     }
 }

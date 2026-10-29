@@ -112,7 +112,7 @@ fun HomeScreen(d: Dashboard, role: Role, business: String, owner: String, curren
                     } else {
                         Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             MiniStat("ديون جديدة", d.newDebtToday, currency, c.bad, Modifier.weight(1f))
-                            MiniStat("تحصّل", d.collectedToday, currency, c.ok, Modifier.weight(1f))
+                            MiniStat("المحصَّل", d.collectedToday, currency, c.ok, Modifier.weight(1f))
                             MiniStat("هذا الشهر", d.collectedMonth, currency, c.text, Modifier.weight(1f))
                         }
                     }
@@ -131,8 +131,8 @@ fun HomeScreen(d: Dashboard, role: Role, business: String, owner: String, curren
                 Quick(R.drawable.ic_sparkles, "اسأل مدين", Modifier.weight(1f), a.onChat)
             }
             if (d.summaries.isEmpty()) {
-                EmptyState(if (landlord) R.drawable.ic_store else R.drawable.ic_users, if (landlord) "ما في محلات بعد" else "ما في زبائن بعد",
-                    if (landlord) "أضف أول محل، أو استورد كشف السوق من Word أو Excel أو صورة." else "سجّل أول دين لزبون، وبعدها كل شي يتحسب لحاله.",
+                EmptyState(if (landlord) R.drawable.ic_store else R.drawable.ic_users, if (landlord) "لا توجد محلات بعد" else "لا يوجد زبائن بعد",
+                    if (landlord) "أضف أول محل، أو استورد كشف السوق من Word أو Excel أو صورة." else "سجّل أول دين لزبون، وبعدها يُحسب كل شيء تلقائياً.",
                     if (landlord) "إضافة محل" else "إضافة زبون", a.onNewParty)
                 return@Column
             }
@@ -179,6 +179,7 @@ fun HomeScreen(d: Dashboard, role: Role, business: String, owner: String, curren
 
 @Composable
 fun PartyRow(s: PartySummary, currency: Currency, landlord: Boolean, onClick: () -> Unit) {
+    @Suppress("NAME_SHADOWING") val currency = s.party.let { p -> if (p.currency.isBlank()) currency else Currency.of(p.currency) }
     val c = Df.c
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Badge(s.party.badge, 42.dp, if (landlord) 14.sp else 16.sp)

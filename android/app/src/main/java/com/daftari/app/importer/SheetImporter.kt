@@ -66,13 +66,13 @@ object SheetImporter {
 
     fun fromTable(table: List<List<String>>): ImportResult {
         val rows = table.map { r -> r.map { clean(it) } }.filter { r -> r.any { it.isNotBlank() } }
-        if (rows.isEmpty()) return ImportResult(emptyList(), warnings = listOf("ما لقيت جدول في الملف"))
+        if (rows.isEmpty()) return ImportResult(emptyList(), warnings = listOf("لم أجد جدولاً في الملف"))
         val headerIdx = rows.indexOfFirst { r -> r.any { it.contains("اسم") || it == "الاسم" || it.contains("المستأجر") || it.contains("الزبون") } }
         val warnings = ArrayList<String>()
         val header: List<String>
         val body: List<List<String>>
         if (headerIdx >= 0) { header = rows[headerIdx]; body = rows.drop(headerIdx + 1) } else {
-            header = emptyList(); body = rows; warnings += "ما لقيت عنوان الأعمدة، خمّنت عمود الأسماء"
+            header = emptyList(); body = rows; warnings += "لم أجد عناوين الأعمدة، فخمّنتُ عمود الأسماء"
         }
         fun col(vararg keys: String, exclude: List<String> = emptyList()): Int =
             header.indexOfFirst { h -> keys.any { h.contains(it) } && exclude.none { h.contains(it) } }
@@ -97,7 +97,7 @@ object SheetImporter {
             val amount = if (amountCol >= 0) Money.parse(amountText) ?: 0 else 0
             val arrears = if (arrearsCol >= 0) Money.parse(arrearsText) ?: 0 else 0
             val reasons = ArrayList<String>()
-            if (name.any { it.isDigit() }) reasons += "الاسم فيه أرقام"
+            if (name.any { it.isDigit() }) reasons += "الاسم يحتوي على أرقام"
             if (name.length < 3) reasons += "الاسم قصير"
             if (amountText.isNotBlank() && Money.parse(amountText) == null) reasons += "مبلغ غير واضح: $amountText"
             if (arrearsText.isNotBlank() && Money.parse(arrearsText) == null) reasons += "متأخرات غير واضحة: $arrearsText"
@@ -120,7 +120,7 @@ object SheetImporter {
             val n = (seen[key] ?: 0) + 1; seen[key] = n
             if (n > 1) row.copy(doubtful = true, reason = listOf(row.reason, "اسم مكرر").filter { it.isNotBlank() }.joinToString("، ")) else row
         }
-        if (marked.isEmpty()) warnings += "ما لقيت أسماء"
+        if (marked.isEmpty()) warnings += "لم أجد أسماء"
         return ImportResult(marked, warnings = warnings)
     }
 

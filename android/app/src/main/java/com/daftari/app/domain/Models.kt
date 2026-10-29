@@ -14,7 +14,7 @@ enum class Role(val labelAr: String) {
 enum class PartyKind { CUSTOMER, SHOP }
 
 enum class Period(val labelAr: String) {
-    NONE("بدون مبلغ دوري"),
+    NONE("دون مبلغ دوري"),
     DAILY("يومي"),
     WEEKLY("أسبوعي"),
     MONTHLY("شهري"),
@@ -51,6 +51,8 @@ data class Party(
     val category: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
+    /** The account's own currency (YER/SAR/USD). Every amount of this account is kept in it; changing the app's default never rewrites it. "" = legacy row (filled at first start of 1.1.0). */
+    val currency: String = "",
 ) {
     val title: String get() = if (kind == PartyKind.SHOP && shopNumber.isNotBlank()) "محل $shopNumber" else name
     val badge: String get() = if (kind == PartyKind.SHOP && shopNumber.isNotBlank()) shopNumber else name.trim().take(1)
@@ -72,7 +74,23 @@ data class Entry(
     /** when the customer promised to pay this debt (null = none) */
     val dueDate: LocalDate? = null,
     val createdAt: Long = System.currentTimeMillis(),
-)
+    /** The currency the money was actually given/paid in ("" = the account currency). [amount] is always in the account currency. */
+    val currency: String = "",
+    /** The amount in [currency] (minor units). 0 when it was the account currency. */
+    val origAmount: Long = 0,
+    /** 1 [currency] = [rate] account-currency units, as used at that moment (decimal text, e.g. "140"). */
+    val rate: String = "",
+    /** payments: "cash" (نقداً) · "transfer" (حوالة) · "wallet" (محفظة) · "other" (غيره); "" = not stated. */
+    val method: String = "",
+    /** رقم الحوالة / رقم عملية المحفظة (required when method = transfer or wallet) */
+    val transferNo: String = "",
+    /** شركة الحوالة (الكريمي، النجم، الحزمي أو اسم مكتوب) / اسم المحفظة (ون كاش، جيب، جوالي، فلوسك، حاسب أو اسم مكتوب) */
+    val transferCo: String = "",
+    /** 1.1.1: رقم جوال المرسل (اختياري، للمحفظة) */
+    val senderPhone: String = "",
+) {
+    val foreign: Boolean get() = currency.isNotBlank() && origAmount > 0 && rate.isNotBlank()
+}
 
 data class Attachment(
     val id: Long = 0,
@@ -81,6 +99,8 @@ data class Attachment(
     val displayName: String,
     val mime: String,
     val createdAt: Long = System.currentTimeMillis(),
+    /** 1.1.1: the payment this receipt photo belongs to (0 = the customer in general) */
+    val entryId: Long = 0,
 )
 
 /** A party with its computed figures, as every list shows it. */

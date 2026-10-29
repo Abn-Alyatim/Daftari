@@ -1,5 +1,7 @@
 package com.daftari.app.export
 
+import com.daftari.app.core.fxNote
+
 import com.daftari.app.core.AppInfo
 import com.daftari.app.core.Currency
 import com.daftari.app.core.Dates
@@ -126,7 +128,7 @@ object ReportBuilder {
             val p = byId.getValue(e.partyId)
             val isPay = e.type == com.daftari.app.domain.EntryType.PAYMENT
             if (isPay) credit += e.amount else debit += e.amount
-            listOf((i + 1).toString(), Dates.numeric(e.date), p.title, listOf(e.note, e.items.replace('\n', '،')).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { if (isPay) "تسديد" else "دين" },
+            listOf((i + 1).toString(), Dates.numeric(e.date), p.title, listOf(if (isPay) com.daftari.app.core.PayMethods.statementText(e) else e.note, e.items.replace('\n', '،'), if (e.foreign) "${com.daftari.app.core.Money.number(e.origAmount)} ${e.currency} × ${e.rate}" else "").filter { it.isNotBlank() }.joinToString(" · ").ifBlank { if (isPay) "تسديد" else "دين" },
                 if (!isPay) Money.plain(e.amount) else "", if (isPay) Money.plain(e.amount) else "", p.category)
         }
         return Report(

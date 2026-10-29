@@ -1,6 +1,7 @@
 package com.daftari.app.ui.parties
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +63,7 @@ data class DetailsActions(
 
 @Composable
 fun PartyDetailsScreen(s: PartySummary, entries: List<Entry>, attachments: List<Attachment>, role: Role, currency: Currency, a: DetailsActions) {
+    @Suppress("NAME_SHADOWING") val currency = s.party.let { p -> if (p.currency.isBlank()) currency else Currency.of(p.currency) }
     val c = Df.c
     val p = s.party
     val landlord = role == Role.LANDLORD
@@ -102,7 +104,7 @@ fun PartyDetailsScreen(s: PartySummary, entries: List<Entry>, attachments: List<
                 Segmented(listOf(if (landlord) "الدفعات" else "الحركات", "المعلومات", "المرفقات ${attachments.size}".trim()), tab) { tab = it }
                 Spacer(Modifier.height(12.dp))
                 when (tab) {
-                    0 -> EntriesList(entries, currency, a.onDeleteEntry)
+                    0 -> EntriesList(entries, currency, a.onDeleteEntry, attachments.filter { it.entryId > 0 }.associateBy { it.entryId }, a.onOpenAttachment)
                     1 -> InfoList(s, role, currency)
                     else -> AttachmentsList(attachments, a)
                 }
@@ -124,9 +126,10 @@ fun PartyDetailsScreen(s: PartySummary, entries: List<Entry>, attachments: List<
     }
 }
 
-@Composable private fun EntriesList(entries: List<Entry>, currency: Currency, onDelete: (Entry) -> Unit) {
+@Composable internal fun EntriesList(entries: List<Entry>, currency: Currency, onDelete: (Entry) -> Unit,
+                                     receipts: Map<Long, Attachment> = emptyMap(), onOpenReceipt: (Attachment) -> Unit = {}) {
     val c = Df.c
-    if (entries.isEmpty()) { T("ما في حركات بعد", 13.sp, color = c.muted, modifier = Modifier.fillMaxWidth().padding(24.dp), align = TextAlign.Center); return }
+    if (entries.isEmpty()) { T("لا توجد حركات بعد", 13.sp, color = c.muted, modifier = Modifier.fillMaxWidth().padding(24.dp), align = TextAlign.Center); return }
     DfCard(Modifier.fillMaxWidth()) {
         entries.take(60).forEachIndexed { i, e ->
             val pay = e.type == EntryType.PAYMENT
@@ -136,11 +139,24 @@ fun PartyDetailsScreen(s: PartySummary, entries: List<Entry>, attachments: List<
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    T(e.note.ifBlank { if (pay) "دفعة" else "دين" }, 13.5.sp, FontWeight.Bold, maxLines = 1)
+                    T((if (pay) com.daftari.app.core.PayMethods.ownNote(e) else e.note).ifBlank { if (pay) "دفعة" else "دين" }, 13.5.sp, FontWeight.Bold, maxLines = 1)
                     val meta = listOf(Dates.relative(e.date), e.collector.takeIf { it.isNotBlank() }?.let { "المحصل $it" }, e.receiptNo.takeIf { it.isNotBlank() }?.let { "سند $it" },
                         e.dueDate?.let { "موعد ${Dates.short(it)}" }).filterNotNull().joinToString(" · ")
                     T(meta, 11.5.sp, color = c.muted, maxLines = 1)
                     if (e.items.isNotBlank()) T(e.items.replace("\n", "، "), 11.5.sp, color = c.muted2, maxLines = 2)
+                    if (e.foreign) T("\u2066${Money.number(e.origAmount)} ${e.currency} × ${e.rate}\u2069", 11.5.sp, FontWeight.SemiBold, if (c.isDark) c.primaryLight else c.primary, maxLines = 1)
+                    if (pay && (e.method == "transfer" || e.method == "wallet")) Row(Modifier.padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (e.method == "wallet") { WalletLogo(e.transferCo.ifBlank { "محفظة" }, 16.dp); Spacer(Modifier.width(5.dp)) }
+                        T(com.daftari.app.core.PayMethods.short(e), 11.5.sp, FontWeight.SemiBold, c.muted, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    }
+                    if (pay && e.senderPhone.isNotBlank()) T("جوال المرسل \u2066${e.senderPhone}\u2069", 11.sp, color = c.muted2, maxLines = 1)
+                    receipts[e.id]?.let { r ->
+                        Row(Modifier.padding(top = 4.dp).clip(RoundedCornerShape(8.dp)).border(1.dp, c.outline, RoundedCornerShape(8.dp)).clickable { onOpenReceipt(r) }.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            DfIcon(R.drawable.ic_image, 13.dp, if (c.isDark) c.primaryLight else c.primary); Spacer(Modifier.width(4.dp))
+                            T("صورة الإيصال", 11.sp, FontWeight.SemiBold, if (c.isDark) c.primaryLight else c.primary)
+                        }
+                    }
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     T("\u2066" + (if (pay) "+" else "−") + Money.format(e.amount, currency, false) + "\u2069", 14.sp, FontWeight.ExtraBold, if (pay) c.ok else c.bad)

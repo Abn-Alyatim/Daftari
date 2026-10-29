@@ -16,7 +16,7 @@ object Share {
     fun uriFor(ctx: Context, file: File): Uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
 
     fun call(ctx: Context, phone: String) {
-        if (phone.isBlank()) return toast(ctx, "ما في رقم مسجل")
+        if (phone.isBlank()) return toast(ctx, "لا يوجد رقم مسجّل")
         start(ctx, Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(phone))))
     }
 
@@ -58,7 +58,7 @@ object Share {
     }
 
     private fun start(ctx: Context, i: Intent) {
-        try { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: ActivityNotFoundException) { toast(ctx, "ما في تطبيق يفتح هذا") }
+        try { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: ActivityNotFoundException) { toast(ctx, "لا يوجد تطبيق يفتح هذا") }
     }
 
     /** Sends a file straight to Google Drive's «save» screen when Drive is installed, else the share sheet. */

@@ -26,7 +26,7 @@ object GoogleAuth {
             if (cred is CustomCredential && cred.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val g = GoogleIdTokenCredential.createFrom(cred.data)
                 GoogleResult.Ok(g.idToken, g.id, g.displayName.orEmpty())
-            } else GoogleResult.Failed("ما وصلنا حساب Google")
+            } else GoogleResult.Failed("لم يصلنا حساب Google")
         } catch (e: GetCredentialCancellationException) {
             GoogleResult.Cancelled
         } catch (e: GetCredentialException) {
