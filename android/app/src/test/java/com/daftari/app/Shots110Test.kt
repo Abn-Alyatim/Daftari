@@ -142,8 +142,8 @@ class Shots110Test {
     }
 
     @Test fun a05_import_mapping_preview() {
-        val bytes = javaClass.classLoader!!.getResourceAsStream("fixtures/import_sample_monthly_his.xls")!!.readBytes()
-        val t = StatementImporter.read("import_sample_monthly_his.xls", bytes).first()
+        val bytes = javaClass.classLoader!!.getResourceAsStream("fixtures/import_sample_monthly_demo.xls")!!.readBytes()
+        val t = StatementImporter.read("import_sample_monthly_demo.xls", bytes).first()
         val plan = StatementImporter.build(t, StatementImporter.guess(t), emptyList(), emptyList(), today)
         shot("05_import_mapping_preview") { MigratePreview(listOf(t), 0, plan, false, null, {}, { _, _ -> }, {}, {}, {}, {}) }
     }

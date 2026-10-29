@@ -139,7 +139,8 @@ class Features111Test {
         // encrypted too
         val key = DaftariFile.deriveKey("سر123", iterations = 1000)
         val enc = DaftariFile.read(DaftariFile.write(sample(), key), "سر123") as ReadResult.Ok
-        assertEquals(sample().entries, enc.data.entries.map { it.copy(createdAt = sample().entries.first { s -> s.id == it.id }.createdAt) })
+        val ref = sample() // one instance: createdAt defaults to the clock, two calls can differ by 1 ms
+        assertEquals(ref.entries, enc.data.entries.map { it.copy(createdAt = ref.entries.first { s -> s.id == it.id }.createdAt) })
     }
     @Test fun schema20FileIsMigrated() {
         val o = DaftariFile.dataJson(sample())

@@ -218,22 +218,23 @@ class Features110Test {
         assertTrue(freshLog.verify().ok)
     }
 
-    // ------------------------------------------------------------ the real .xls (monthly pivot)
+    // ------------------------------------------------------------ demo .xls (monthly pivot, made-up names)
     private fun fixture(n: String) = javaClass.classLoader!!.getResourceAsStream("fixtures/$n")!!.readBytes()
 
     @Test fun xlsSampleMonthlyPivot() {
-        val bytes = fixture("import_sample_monthly_his.xls")
+        val bytes = fixture("import_sample_monthly_demo.xls")
         val sheets = XlsReader.read(bytes)
         assertTrue(sheets.any { it.name.contains("تفصيلي") })
-        val t = StatementImporter.read("import_sample_monthly_his.xls", bytes).first()
+        val t = StatementImporter.read("import_sample_monthly_demo.xls", bytes).first()
         val m = StatementImporter.guess(t)
         assertEquals(Layout.MONTHLY, m.layout)
         val plan = StatementImporter.build(t, m, emptyList(), emptyList(), day)
         val byName = plan.customers.associate { it.name.trim() to it.net }
-        assertEquals(200_000L, byName["مدين"])
-        assertEquals(20_005_000L, byName["محمد"])
-        assertEquals(2, plan.customers.size)
-        assertEquals(20_205_000L, plan.fileTotal)
+        assertEquals(350_000L, byName["أحمد سالم"])
+        assertEquals(1_275_000L, byName["خالد ناصر"])
+        assertEquals(125_000L, byName["سعيد علي"])
+        assertEquals(3, plan.customers.size)
+        assertEquals(1_750_000L, plan.fileTotal)
         assertEquals(true, plan.totalMatches)
         assertTrue(plan.txns.all { it.date.monthValue == 10 })
     }

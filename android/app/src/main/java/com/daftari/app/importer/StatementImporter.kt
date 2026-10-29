@@ -207,7 +207,7 @@ object StatementImporter {
 
     // ------------------------------------------------------------------ values
 
-    /** «2,000» «٢٠٠٠» «202,050 محلي» «(500)» «500-» «1.250,50» «-300 له» → minor units; sign kept. */
+    /** «2,000» «٢٠٠٠» «17,500 محلي» «(500)» «500-» «1.250,50» «-300 له» → minor units; sign kept. */
     fun amount(raw: String): Long? {
         var t = ArabicText.normalize(raw)
         if (t.isBlank()) return null
