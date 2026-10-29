@@ -148,30 +148,33 @@ fun MoneySheet(
     onFx: (com.daftari.app.core.Fx?) -> Unit = {},
     /** payment method: method, transfer company / wallet, number, sender phone */
     onMethod: (com.daftari.app.core.PayInfo) -> Unit = {},
+    /** «اختيار من المعرض»; when set, the receipt row is shown (camera + gallery side by side) */
     onReceipt: (() -> Unit)? = null, receiptAttached: Boolean = false,
+    /** 1.1.3: «التقاط صورة» (falls back to [onReceipt] when null), the thumbnail, and «إزالة» */
+    onCamera: (() -> Unit)? = null, receiptThumb: androidx.compose.ui.graphics.ImageBitmap? = null, onRemoveReceipt: (() -> Unit)? = null,
     transferUsed: (String) -> String? = { null },
     initialCurrency: Currency? = null, initialMethod: String = "cash", initialAmount: String = "", initialTransfer: String = "", initialCompany: String = "", initialPhone: String = "",
     onSave: (amount: Long, date: LocalDate, note: String, extra1: String, extra2: String, due: LocalDate?, notify: Boolean) -> Unit,
 ) {
     val c = Df.c
-    var payCur by remember { mutableStateOf(initialCurrency ?: currency) }
-    var method by remember { mutableStateOf(initialMethod) }
-    var transferNo by remember { mutableStateOf(initialTransfer) }
+    var payCur by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialCurrency ?: currency) }
+    var method by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialMethod) }
+    var transferNo by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialTransfer) }
     // «أخرى» is chosen when the starting name is not one of the chips
     val known = initialCompany.isBlank() || initialCompany in com.daftari.app.core.PayMethods.COMPANIES || com.daftari.app.core.PayMethods.wallet(initialCompany) != null
-    var transferCo by remember { mutableStateOf(if (known) initialCompany else "") }
-    var otherCo by remember { mutableStateOf(!known) }
-    var otherName by remember { mutableStateOf(if (known) "" else initialCompany) }
-    var senderPhone by remember { mutableStateOf(initialPhone) }
-    var rateText by remember { mutableStateOf("") }
-    var amount by remember { mutableStateOf(initialAmount) }
-    var note by remember { mutableStateOf("") }
-    var collector by remember { mutableStateOf("") }
-    var receipt by remember { mutableStateOf("") }
-    var items by remember { mutableStateOf("") }
-    var daysAgo by remember { mutableStateOf(0L) }
-    var dueIn by remember { mutableStateOf<Long?>(null) }
-    var notify by remember { mutableStateOf(false) }
+    var transferCo by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(if (known) initialCompany else "") }
+    var otherCo by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(!known) }
+    var otherName by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(if (known) "" else initialCompany) }
+    var senderPhone by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialPhone) }
+    var rateText by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var amount by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialAmount) }
+    var note by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var collector by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var receipt by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var items by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var daysAgo by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0L) }
+    var dueIn by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<Long?>(null) }
+    var notify by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val typed = Money.parse(amount) ?: 0
     val foreign = payCur != currency
     LaunchedEffect(payCur) { rateText = if (foreign) rates.rate(payCur.code, currency.code)?.let { com.daftari.app.core.Rates.plain(it) } ?: "" else "" }
@@ -269,8 +272,13 @@ fun MoneySheet(
                     Field("جوال المرسل", senderPhone, { senderPhone = it }, placeholder = "اختياري", keyboard = KeyboardType.Phone, ltr = true, icon = R.drawable.ic_phone)
                 }
                 if (onReceipt != null) {
-                    Spacer(Modifier.height(8.dp))
-                    GhostButton(if (receiptAttached) "✓ أُرفقت صورة الإيصال بهذه الدفعة" else "إرفاق صورة الإيصال (اختياري)", Modifier.fillMaxWidth(), R.drawable.ic_image, height = 44.dp, onClick = onReceipt)
+                    Spacer(Modifier.height(10.dp))
+                    if (receiptAttached) { ReceiptPreview(receiptThumb, onRemoveReceipt); Spacer(Modifier.height(8.dp)) }
+                    else T("إرفاق صورة الإيصال (اختياري)", 12.sp, FontWeight.SemiBold, c.muted, Modifier.padding(bottom = 6.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ReceiptSourceButton("التقاط صورة", R.drawable.ic_camera, Modifier.weight(1f)) { (onCamera ?: onReceipt).invoke() }
+                        ReceiptSourceButton("اختيار من المعرض", R.drawable.ic_image, Modifier.weight(1f), onClick = onReceipt)
+                    }
                 }
             }
         }

@@ -40,6 +40,49 @@ object ImageUtil {
         return out
     }
 
+    /**
+     * 1.1.3: receipt photos (camera or gallery) are stored as one small JPEG: long side ≤ 1600 px, quality 80,
+     * turned upright from the EXIF orientation (camera photos are often saved sideways). Returns false when
+     * the source is not a readable image.
+     */
+    fun compressReceipt(open: () -> java.io.InputStream?, dest: File, maxSide: Int = com.daftari.app.core.ReceiptCapture.MAX_SIDE,
+                        quality: Int = com.daftari.app.core.ReceiptCapture.QUALITY): Boolean {
+        // one read into memory (a phone photo is a few MB), then decoded at a power-of-two step
+        val bytes = open()?.use { it.readBytes() } ?: return false
+        if (bytes.isEmpty()) return false
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return false
+        val sample = com.daftari.app.core.ReceiptCapture.sampleSize(bounds.outWidth, bounds.outHeight, maxSide)
+        val raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return false
+        val degrees = runCatching { android.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).rotationDegrees() }.getOrDefault(0)
+        val (tw, th) = com.daftari.app.core.ReceiptCapture.targetSize(raw.width, raw.height, maxSide)
+        var bmp = if (tw != raw.width || th != raw.height) Bitmap.createScaledBitmap(raw, tw, th, true) else raw
+        if (degrees != 0) {
+            val m = android.graphics.Matrix().apply { postRotate(degrees.toFloat()) }
+            bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+        }
+        dest.parentFile?.mkdirs()
+        dest.outputStream().use { if (!bmp.compress(Bitmap.CompressFormat.JPEG, quality, it)) return false }
+        return dest.length() > 0
+    }
+
+    private fun android.media.ExifInterface.rotationDegrees(): Int = when (getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)) {
+        android.media.ExifInterface.ORIENTATION_ROTATE_90, android.media.ExifInterface.ORIENTATION_TRANSPOSE -> 90
+        android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+        android.media.ExifInterface.ORIENTATION_ROTATE_270, android.media.ExifInterface.ORIENTATION_TRANSVERSE -> 270
+        else -> 0
+    }
+
+    /** Small preview for the payment sheet (the receipt thumbnail). */
+    fun thumbnail(path: String, maxSide: Int = 256): Bitmap? = runCatching {
+        val bytes = File(path).readBytes()
+        val b = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, b)
+        if (b.outWidth <= 0) return@runCatching null
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = com.daftari.app.core.ReceiptCapture.sampleSize(b.outWidth, b.outHeight, maxSide) })
+    }.getOrNull()
+
     private fun scale(b: Bitmap, maxSide: Int): Bitmap {
         val m = maxOf(b.width, b.height)
         if (m <= maxSide) return b

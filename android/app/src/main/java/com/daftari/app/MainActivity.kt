@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -274,7 +275,8 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
     val stack = remember { androidx.compose.runtime.mutableStateListOf<Route>() }
     fun push(r: Route) { stack.add(r) }
     fun pop() { if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex) }
-    var money by remember { mutableStateOf<Pair<Long, Boolean>?>(null) } // partyId, isDebt
+    // partyId, isDebt — saveable (1.1.3): the sheet must still be open when we come back from the camera, even after rotation or process death
+    var money by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<Pair<Long, Boolean>?>(null) }
     var pwPrompt by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     var picked by remember { mutableStateOf<Pair<String, String>?>(null) }
     val paywall = { push(Route.Paywall) }
@@ -284,7 +286,11 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
     var logActions by remember { mutableStateOf<Set<String>>(emptySet()) }
     var logQuery by remember { mutableStateOf("") }
     var exportSheet by remember { mutableStateOf(false) }
-    var receiptAttached by remember { mutableStateOf(false) }
+    // 1.1.3: the receipt of the open payment sheet = one shrunk JPEG in cacheDir/receipts (path survives rotation / process death)
+    var receiptPath by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    // the file the camera app is writing right now (TakePicture target), kept until its result arrives
+    var cameraPending by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    var receiptThumb by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     val logUnlocked by vm.logUnlocked.collectAsState()
     /** fingerprint AND PIN, then [ok] (the log, every restore) */
     fun secure(title: String, subtitle: String, ok: () -> Unit) { bioDone = false; gate = GateReq(title, subtitle, ok) }
@@ -327,7 +333,46 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
     val chatFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.openImport(uri, toChat = true) }
     val migrateLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.openImport(uri) }
     val saveBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(com.daftari.app.backup.DaftariFile.MIME)) { uri -> if (uri != null) vm.saveBackupTo(uri) }
-    val receiptLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> if (uri != null) { vm.pendingReceipt = uri; receiptAttached = true } }
+    LaunchedEffect(receiptPath) {
+        val p = receiptPath
+        receiptThumb = if (p == null) null else withContext(Dispatchers.IO) { ImageUtil.thumbnail(p)?.asImageBitmap() }
+    }
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { runCatching { com.daftari.app.core.ReceiptCapture.sweep(ctx.cacheDir, listOf(receiptPath, cameraPending)) } } }
+    fun setReceipt(path: String?) {
+        val old = receiptPath
+        receiptPath = path
+        if (old != null && old != path) com.daftari.app.core.ReceiptCapture.discard(ctx.cacheDir, old)
+    }
+    /** gallery and camera photos are stored the same way: shrunk to one small upright JPEG */
+    fun shrinkReceipt(open: () -> java.io.InputStream?, cleanup: () -> Unit = {}) {
+        scope.launch {
+            val dest = com.daftari.app.core.ReceiptCapture.newReceiptFile(ctx.cacheDir)
+            val ok = withContext(Dispatchers.IO) { runCatching { ImageUtil.compressReceipt(open, dest) }.getOrDefault(false).also { cleanup() } }
+            if (ok && money != null) setReceipt(dest.path)
+            else { dest.delete(); if (!ok) vm.say("تعذّرت قراءة الصورة، فاختر صورة أخرى.") }
+        }
+    }
+    val receiptLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) shrinkReceipt({ ctx.contentResolver.openInputStream(uri) })
+    }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        // cancelled / failed → the empty target file is deleted; taken → shrunk into the sheet, original deleted
+        val shot = com.daftari.app.core.ReceiptCapture.settle(taken, cameraPending)
+        cameraPending = null
+        if (shot != null) shrinkReceipt({ shot.inputStream() }) { shot.delete() }
+    }
+    fun openCamera() {
+        com.daftari.app.core.ReceiptCapture.discard(ctx.cacheDir, cameraPending)
+        val f = com.daftari.app.core.ReceiptCapture.newCameraFile(ctx.cacheDir)
+        cameraPending = f.path
+        try {
+            cameraLauncher.launch(com.daftari.app.share.Share.uriFor(ctx, f))
+        } catch (e: android.content.ActivityNotFoundException) {
+            com.daftari.app.core.ReceiptCapture.discard(ctx.cacheDir, f.path); cameraPending = null
+            vm.say("لا يوجد تطبيق للكاميرا على هذا الجهاز، فاختر صورة الإيصال من المعرض.")
+            runCatching { receiptLauncher.launch("image/*") }
+        }
+    }
     val driveAuthLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res -> vm.driveAuthResult(res.data) }
     val contactLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri: Uri? ->
         if (uri != null) scope.launch {
@@ -505,9 +550,13 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
             if (sum != null) Box(Modifier.fillMaxSize().background(Df.c.bg.copy(alpha = 0.6f)).clickable { money = null }, contentAlignment = Alignment.BottomCenter) {
                 Box(Modifier.clickable(enabled = false) {}) {
                     MoneySheet(debt, if (debt) "دين جديد" else "تسديد", sum.party.title, sum.balance, sum.party.periodicAmount, sum.party.cur(s.currency), landlord,
-                        onClose = { money = null; receiptAttached = false; vm.pendingReceipt = null }, rates = s.rates, onFx = { vm.pendingFx = it }, onMethod = { vm.pendingMethod = it },
-                        onReceipt = { receiptLauncher.launch("image/*") }, receiptAttached = receiptAttached, transferUsed = { vm.transferWarning(it) }) { amount, date, note, extra1, extra2, due, _ ->
-                        receiptAttached = false
+                        onClose = { money = null; setReceipt(null); vm.pendingReceipt = null }, rates = s.rates, onFx = { vm.pendingFx = it }, onMethod = { vm.pendingMethod = it },
+                        onReceipt = { receiptLauncher.launch("image/*") }, receiptAttached = receiptPath != null,
+                        onCamera = { openCamera() }, receiptThumb = receiptThumb, onRemoveReceipt = { setReceipt(null) },
+                        transferUsed = { vm.transferWarning(it) }) { amount, date, note, extra1, extra2, due, _ ->
+                        // the view model copies the photo into the payment's attachments, then deletes the temporary file
+                        if (!debt) vm.pendingReceipt = receiptPath?.let { Uri.fromFile(java.io.File(it)) } else setReceipt(null)
+                        receiptPath = null
                         if (debt) vm.addCharge(pid, amount, date, note, extra1, due) else vm.addPayment(pid, amount, date, note, extra1, extra2)
                         money = null
                     }

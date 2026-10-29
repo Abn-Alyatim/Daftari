@@ -193,6 +193,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val label = when (mt?.method) { "wallet" -> "إيصال محفظة ${mt.company} ${mt.ref}"; "transfer" -> "إيصال حوالة ${mt.company} ${mt.ref}"; else -> "إيصال دفعة" }.replace(Regex("\\s+"), " ").trim()
             repo.attach(partyId, rc, label, getApplication<Application>().contentResolver.getType(rc) ?: "image/jpeg", entryId)
         }
+        // 1.1.3: the sheet's shrunk copy (camera or gallery) lives in cacheDir/receipts until it is attached
+        if (rc != null && rc.scheme == "file") com.daftari.app.core.ReceiptCapture.discard(getApplication<Application>().cacheDir, rc.path)
         say("تم تسجيل الدفعة ✅")
     }
 
