@@ -74,7 +74,7 @@ fun VoiceReviewSheet(
             Column(Modifier.weight(1f)) { T("التسجيل بالصوت", 17.sp, FontWeight.ExtraBold); T("راجع ما فهمه دفتري ثم تابع", 12.5.sp, color = c.muted) }
             IconBox(R.drawable.ic_x, onClose, 36.dp)
         }
-        HeardLine(draft.transcript, "")
+        HeardLine(draft.transcript, "", via = VoiceLast.via?.label.orEmpty())
 
         // ---- kind
         if (!landlord) {

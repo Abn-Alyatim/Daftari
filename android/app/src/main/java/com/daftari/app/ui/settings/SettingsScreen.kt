@@ -155,6 +155,9 @@ fun SettingsScreen(s: AppSettings, info: ServerInfo?, a: SettingsActions) {
                 Line()
                 Item(R.drawable.ic_arrow_down_left, "استعادة من ملف", "ملف \u2066.daftari\u2069 (أو نسخة قديمة \u2066.json\u2069)", a.onRestore)
             }
+            // 1.1.7: the offline voice model (status, download, delete) and the chat's auto-send switch
+            SectionTitle("الإدخال الصوتي")
+            Group { com.daftari.app.voice.VoiceSettingsRows() }
             SectionTitle("الخدمات")
             Group {
                 Status("الخادم", if (info != null) "متصل · ${info.version}" else "قيد التجهيز", info != null)
@@ -164,6 +167,8 @@ fun SettingsScreen(s: AppSettings, info: ServerInfo?, a: SettingsActions) {
             SectionTitle("عن التطبيق")
             Group {
                 Item(R.drawable.ic_send, "تواصل مع المطوّر عبر تيليجرام", "\u2066${AppInfo.DEV_TELEGRAM}\u2069", a.onDeveloper)
+                Line()
+                com.daftari.app.voice.VoiceLicensesNote()
             }
             Spacer(Modifier.height(14.dp))
             Group {

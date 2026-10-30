@@ -1,7 +1,7 @@
 /*
  * دفتري · test/Features116Test.kt
  * اختبارات 1.1.6 غير الصوتية-التحليلية: قرار ما بعد أخطاء محرّك الكلام، حفظ التعبئة المسبقة، آخر الزبائن، ومبلغ «سداد كامل».
- * 1.1.6 unit tests: speech-error decisions (offline pack / retry next language), the pre-fill round trip,
+ * 1.1.6 unit tests (the Google-recognizer ones were removed in 1.1.7 with that engine): the pre-fill round trip,
  * recent customers (last 5, newest first, only live accounts), the «سداد كامل» amount text. Pure JVM.
  */
 package com.daftari.app
@@ -10,12 +10,9 @@ import com.daftari.app.core.Currency
 import com.daftari.app.core.QuickEntry
 import com.daftari.app.domain.Entry
 import com.daftari.app.domain.EntryType
-import com.daftari.app.voice.ArabicLocales
-import com.daftari.app.voice.PackStatus
 import com.daftari.app.voice.VoiceEntryParser
 import com.daftari.app.voice.VoiceErrors
 import com.daftari.app.voice.VoiceKind
-import com.daftari.app.voice.VoiceNext
 import com.daftari.app.voice.VoicePrefill
 import com.daftari.app.voice.VoiceProblem
 import org.junit.Assert.assertEquals
@@ -25,21 +22,8 @@ import org.junit.Test
 import java.time.LocalDate
 
 class Features116Test {
-    @Test fun speechErrorsMoveOnThenAskForThePack() {
-        // no Arabic offline model: try the next language / engine first, then ask for the pack
-        for (code in listOf(VoiceErrors.LANGUAGE_NOT_SUPPORTED, VoiceErrors.LANGUAGE_UNAVAILABLE, VoiceErrors.NETWORK, VoiceErrors.NETWORK_TIMEOUT, VoiceErrors.SERVER)) {
-            assertEquals(VoiceNext.TryNext, VoiceErrors.next(code, hasMoreAttempts = true))
-            assertEquals(VoiceNext.Show(VoiceProblem.OFFLINE_PACK_MISSING), VoiceErrors.next(code, hasMoreAttempts = false))
-        }
-        // silence is not an engine problem: never switches engine
-        assertEquals(VoiceNext.Show(VoiceProblem.NOTHING_HEARD), VoiceErrors.next(VoiceErrors.NO_MATCH, true))
-        assertEquals(VoiceNext.Show(VoiceProblem.NOTHING_HEARD), VoiceErrors.next(VoiceErrors.SPEECH_TIMEOUT, true))
-        assertEquals(VoiceNext.Show(VoiceProblem.NO_PERMISSION), VoiceErrors.next(VoiceErrors.INSUFFICIENT_PERMISSIONS, true))
-        assertEquals(VoiceNext.Show(VoiceProblem.MIC_ERROR), VoiceErrors.next(VoiceErrors.AUDIO, false))
-        assertEquals(VoiceNext.Show(VoiceProblem.BUSY), VoiceErrors.next(VoiceErrors.BUSY, true))
-        assertEquals(VoiceNext.Show(VoiceProblem.FAILED), VoiceErrors.next(99, false))
-        assertEquals(listOf("ar-YE", "ar-SA"), VoiceErrors.LANGUAGES)
-        assertTrue(VoiceProblem.OFFLINE_PACK_MISSING.offerPack)
+    @Test fun permissionProblemOffersSettings() {
+        // 1.1.6's Google recognizer / Arabic pack tests were removed with that engine in 1.1.7 (see Features117Test)
         assertTrue(VoiceProblem.NO_PERMISSION.offerSettings)
     }
 
@@ -71,21 +55,6 @@ class Features116Test {
         assertEquals(emptyList<Long>(), QuickEntry.recentPartyIds(emptyList(), setOf(1)))
         assertEquals(listOf(500L, 1000L, 5000L, 10000L), QuickEntry.PAY_CHIPS)
     }
-
-    @Test fun arabicLocaleChoiceAndPackLines() {
-        assertEquals("ar-YE", ArabicLocales.pick(listOf("en-US", "ar-SA", "ar-YE")))
-        assertEquals("ar-SA", ArabicLocales.pick(listOf("en-US", "ar_SA", "ar-EG")).let { if (it == "ar_SA") "ar-SA" else it })
-        assertEquals("ar-EG", ArabicLocales.pick(listOf("en-US", "ar-EG")))
-        assertEquals("ar", ArabicLocales.pick(listOf("fr-FR", "ar")))
-        assertNull(ArabicLocales.pick(listOf("en-US", "fr-FR")))
-        assertNull(PackStatus.Idle.line)
-        assertTrue(PackStatus.Downloading(40).line!!.contains("40%"))
-        assertTrue(PackStatus.Downloading(null).line!!.startsWith("جارٍ تنزيل حزمة العربية في الخلفية"))
-        assertTrue(PackStatus.Downloading(null).busy && PackStatus.Scheduled.busy && !PackStatus.Ready.busy)
-        assertTrue(PackStatus.Ready.line!!.contains("جاهزة"))
-    }
-
-    @Test fun versionIs116() { assertEquals(9, BuildConfig.VERSION_CODE); assertEquals("1.1.6", BuildConfig.VERSION_NAME) }
 
     @Test fun payFullFillsTheWholeBalance() {
         assertEquals("12500", QuickEntry.fullBalanceText(1_250_000))

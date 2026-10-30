@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- 1.1.6: voice entry (asked at runtime only when the mic is first tapped) -->
+    <!-- 1.1.6+: voice entry; since 1.1.7 recorded and transcribed on the phone only (offline Whisper model) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <queries>
@@ -21,11 +21,6 @@
         <intent>
             <action android:name="android.intent.action.DIAL" />
         </intent>
-        <!-- 1.1.6: Android 11+ package visibility for the built-in speech recognizer -->
-        <intent>
-            <action android:name="android.speech.RecognitionService" />
-        </intent>
-        <package android:name="com.google.android.googlequicksearchbox" />
     </queries>
 
     <application

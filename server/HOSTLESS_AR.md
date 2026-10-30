@@ -10,13 +10,17 @@
 - اسم التطبيق: **daftari** بالضبط ← الرابط https://daftari.hostless.app (هذا المكتوب داخل التطبيق)
 - Port: **8080**
 
-## 2) Environment (4 متغيرات)
+## 2) Environment (4 متغيرات أساسية + مفتاح Groq اختياري)
 - **DATABASE_URL**: انسخ القيمة نفسها من تطبيق ALYATIM في hostless (جداول دفتري تبدأ بـ df_ ولا تلمس جداول اليتيم). أو أنشئ مشروعاً جديداً في Neon والصق رابطه.
 - **AUTH_SECRET**: من الملف الذي أرسلته لك
 - **ADMIN_TOKEN**: من الملف نفسه
 - **GOOGLE_CLIENT_IDS**: معرّف Web client لمشروع دفتري في Google (موجود في الملف نفسه). أكثر من معرّف: افصل بينها بفاصلة
 
-ثم **Save & Deploy**. للتأكد افتح https://daftari.hostless.app/health ويجب أن يظهر `"ok":true` و `"version":"1.1.0"`.
+- **GROQ_API_KEY** (اختياري، 1.2.0): مفتاح Groq المجاني من console.groq.com ← API Keys. يشغّل «مدين» و**الإدخال الصوتي عبر الإنترنت** (Whisper بالعربية، أدقّ من النموذج الذي يعمل على الجوال). المفتاح يبقى في الخادم فقط ولا يدخل التطبيق أبداً. بدونه يعمل الصوت في التطبيق بنموذج الجوال دون إنترنت.
+- **GROQ_API_KEY_2** (اختياري): مفتاح ثانٍ يُستخدم إذا قال الأول «طلبات كثيرة».
+- (اختياري) **VOICE_HOURLY_LIMIT** = 60 تسجيلاً في الساعة لكل مستخدم مسجّل، و**ANON_VOICE_HOURLY_LIMIT** = 20 لكل جهاز غير مسجّل.
+
+ثم **Save & Deploy**. للتأكد افتح https://daftari.hostless.app/health ويجب أن يظهر `"ok":true` و `"version":"1.2.0"`. وفي https://daftari.hostless.app/api/v1/info يظهر `"voiceReady":true` عند وضع مفتاح Groq.
 
 ## 3) اربطه بلوحة مَدْيَن
 لوحة مَدْيَن ← إضافة تطبيق ← نوع الربط **دفتري** ← الرابط https://daftari.hostless.app ← رمز الإدارة = **ADMIN_TOKEN** نفسه ← اختبار الاتصال ← حفظ بالبصمة.

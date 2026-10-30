@@ -7,6 +7,7 @@ import { OtpError, type Fetch, type OtpRouter } from "./otp.js";
 import { Ai, AiError, NOT_READY, chatSystemPrompt, importSystemPrompt, parseJsonLoose } from "./ai.js";
 import { hashCode, newOtp, normalizePhone, signToken, verifyToken } from "./auth.js";
 import { isAdmin, planOf, registerSubs } from "./subs.js";
+import { registerVoice } from "./voice.js";
 
 export interface Deps { cfg: Config; store: Store; otp: OtpRouter; ai: Ai; fetch?: Fetch; now?: () => number }
 
@@ -29,7 +30,7 @@ export function buildApp(d: Deps): FastifyInstance {
   app.get("/health", async () => ({ ok: true, name: "daftari", version: cfg.version }));
   app.get("/api/v1/info", async () => ({
     name: "daftari", version: cfg.version, otpProvider: otp.name, otpChannels: otp.channels, otpReady: otp.ready,
-    googleClientId: cfg.googleClientId, aiReady: ai.ready,
+    googleClientId: cfg.googleClientId, aiReady: ai.ready, voiceReady: !!(cfg.groqKey || cfg.groqKey2),
   }));
 
   // ---------------- OTP ----------------
@@ -175,7 +176,12 @@ export function buildApp(d: Deps): FastifyInstance {
   });
 
   registerSubs(app, { cfg, store, now, userOf });
+  registerVoice(app, { cfg, store, fetch: f, now, userOf });
 
-  app.setErrorHandler((e, _req, reply) => { reply.code(500).send(err("server", "خطأ في الخادم")); void e; });
+  app.setErrorHandler((e, _req, reply) => {
+    // 1.2.0: a body over the route's limit (e.g. a long voice recording) is the client's 413, not a server error
+    if ((e as { statusCode?: number }).statusCode === 413) return reply.code(413).send(err("too_big", "الطلب أكبر من المسموح"));
+    reply.code(500).send(err("server", "خطأ في الخادم"));
+  });
   return app;
 }

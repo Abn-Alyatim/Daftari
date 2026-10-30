@@ -1,3 +1,9 @@
+/*
+ * دفتري · ui/chat/ChatScreen.kt
+ * شاشة «اسأل مدين»: المحادثة، الاقتراحات السريعة، وخانة الكتابة مع المرفق والميكروفون (1.1.7) وزر الإرسال.
+ * The assistant chat screen. 1.1.7 adds the 🎤 beside «إرسال»: what is heard goes into the input box for review, or is sent
+ * at once when «إرسال تلقائي بعد التحدث» is on in Settings (chat only).
+ */
 package com.daftari.app.ui.chat
 
 import androidx.compose.foundation.background
@@ -78,6 +84,10 @@ fun ChatScreen(
 ) {
     val c = Df.c
     var input by remember { mutableStateOf("") }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    // 1.1.7: the mic in the chat input — the words go into the input box; the user reads them and sends himself
+    var listening by remember { mutableStateOf(false) }
+    var heardVia by remember { mutableStateOf("") }
     val list = rememberLazyListState()
     LaunchedEffect(messages.size, busy) { if (messages.isNotEmpty()) list.animateScrollToItem(messages.size + (if (busy) 1 else 0) - 1 + 1) }
     val suggestions = if (role == Role.LANDLORD) listOf("من لم يدفع اليوم؟", "أكثر المتأخرين", "ملخص اليوم", "تراجع")
@@ -114,6 +124,7 @@ fun ChatScreen(
                     }
                 }
             }
+            if (heardVia.isNotBlank()) T("🎤 $heardVia", 11.sp, color = c.muted2, modifier = Modifier.padding(bottom = 4.dp, start = 4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (onAttach != null) {
                     Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).border(1.dp, c.outline, RoundedCornerShape(16.dp)).clickable(onClick = onAttach), contentAlignment = Alignment.Center) {
@@ -126,12 +137,26 @@ fun ChatScreen(
                     BasicTextField(input, { input = it }, singleLine = true, textStyle = TextStyle(color = c.text, fontSize = 14.sp, fontFamily = NotoArabic), cursorBrush = SolidColor(c.primary), modifier = Modifier.fillMaxWidth())
                 }
                 Spacer(Modifier.width(8.dp))
-                Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(c.primary).clickable(enabled = !busy) { onSend(input); input = "" }, contentAlignment = Alignment.Center) {
+                com.daftari.app.voice.MicButton({ listening = true }, 48.dp)
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(c.primary).clickable(enabled = !busy) { onSend(input); input = ""; heardVia = "" }, contentAlignment = Alignment.Center) {
                     DfIcon(R.drawable.ic_send, 20.dp, c.onPrimary)
                 }
             }
         }
     }
+    if (listening) com.daftari.app.voice.VoiceCaptureDialog(
+        if (role == Role.LANDLORD) "من لم يدفع اليوم؟" else "سجّل على محمد رز وسكر بخمسة آلاف",
+        onText = { text ->
+            listening = false
+            // «إرسال تلقائي بعد التحدث» (Settings, off by default): off → into the box for review; on → sent at once
+            val (box, send) = com.daftari.app.voice.ChatVoice.apply(input, text, com.daftari.app.voice.VoicePrefs.load(ctx))
+            input = box
+            heardVia = com.daftari.app.voice.VoiceLast.via?.label.orEmpty()
+            send?.let(onSend)
+        },
+        onDismiss = { listening = false },
+    )
 }
 
 @Composable

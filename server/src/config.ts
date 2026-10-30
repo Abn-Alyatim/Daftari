@@ -17,6 +17,12 @@ export interface Config {
   /** every accepted audience (GOOGLE_CLIENT_IDS, comma-separated, plus GOOGLE_CLIENT_ID) — a move to a new Cloud project keeps old installs working */
   googleClientIds: string[];
   groqKey: string;
+  /** optional second Groq key, used by voice when the first answers 429 */
+  groqKey2: string;
+  /** speech-to-text model for /api/v1/voice/transcribe */
+  groqSttModel: string;
+  voiceHourlyLimit: number;
+  anonVoiceHourlyLimit: number;
   groqModel: string;
   groqVisionModel: string;
   geminiKey: string;
@@ -47,12 +53,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     googleClientIds: [...new Set([...(env.GOOGLE_CLIENT_IDS ?? "").split(","), env.GOOGLE_CLIENT_ID ?? ""].map((x) => x.trim()).filter(Boolean))],
     googleClientId: (env.GOOGLE_CLIENT_ID ?? "").trim() || (env.GOOGLE_CLIENT_IDS ?? "").split(",").map((x) => x.trim()).filter(Boolean)[0] || "",
     groqKey: env.GROQ_API_KEY ?? "",
+    groqKey2: env.GROQ_API_KEY_2 ?? "",
+    groqSttModel: env.GROQ_STT_MODEL ?? "whisper-large-v3",
+    voiceHourlyLimit: Number(env.VOICE_HOURLY_LIMIT ?? 60),
+    anonVoiceHourlyLimit: Number(env.ANON_VOICE_HOURLY_LIMIT ?? 20),
     groqModel: env.GROQ_MODEL ?? "llama-3.3-70b-versatile",
     groqVisionModel: env.GROQ_VISION_MODEL ?? "meta-llama/llama-4-scout-17b-16e-instruct",
     geminiKey: env.GEMINI_API_KEY ?? "",
     geminiModel: env.GEMINI_MODEL ?? "gemini-2.0-flash",
     chatDailyLimit: Number(env.CHAT_DAILY_LIMIT ?? 60),
     anonDailyLimit: Number(env.ANON_DAILY_LIMIT ?? 15),
-    version: "1.1.0",
+    version: "1.2.0",
   };
 }

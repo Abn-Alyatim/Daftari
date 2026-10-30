@@ -34,9 +34,10 @@ import com.daftari.app.ui.parties.QuickPickSheet
 import com.daftari.app.ui.theme.DaftariTheme
 import com.daftari.app.ui.theme.Df
 import com.daftari.app.voice.HeardLine
-import com.daftari.app.voice.PackStatus
-import com.daftari.app.voice.PackStatusLine
-import com.daftari.app.voice.SpeechPack
+import com.daftari.app.voice.ModelDownloads
+import com.daftari.app.voice.ModelState
+import com.daftari.app.voice.ModelStatusLine
+import com.daftari.app.voice.VoiceModel
 import com.daftari.app.voice.VoiceCustomer
 import com.daftari.app.voice.VoiceEntryParser
 import com.daftari.app.voice.VoiceKind
@@ -59,7 +60,7 @@ class Shots116Test {
     private val today = LocalDate.of(2026, 10, 30)
 
     @Before fun noVideo() { ClipConfig.useVideo = false }
-    @After fun idle() { SpeechPack.status.value = PackStatus.Idle }
+    @After fun idle() { ModelDownloads.state.value = ModelState.Idle }
 
     private fun shot(name: String, content: @Composable () -> Unit) {
         compose.setContent { DaftariTheme(ThemeMode.DARK_BLUE) { Box(Modifier.fillMaxSize().background(Df.c.bg)) { content() } } }
@@ -147,10 +148,11 @@ class Shots116Test {
     }
 
     @Test fun h_pack_downloading_line() {
-        SpeechPack.status.value = PackStatus.Downloading(40)
+        // 1.1.7: the Google pack line became the offline model's download line
+        ModelDownloads.state.value = ModelState.Downloading(VoiceModel.BASE, 40)
         shot("h_pack_status_and_heard") {
             Column(Modifier.padding(16.dp)) {
-                PackStatusLine()
+                ModelStatusLine()
                 HeardLine("سدد خالد ثلاثة آلاف", "عُبّئ: المبلغ 3,000", "فهمتُ من كلامك «تسديد»، وهذه نافذة «دين جديد».", "التبديل إلى «تسديد»", {})
             }
         }

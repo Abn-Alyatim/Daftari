@@ -69,7 +69,7 @@ fun HomeScreen(d: Dashboard, role: Role, business: String, owner: String, curren
             a.onVoice?.let { v -> com.daftari.app.voice.MicButton(v); Spacer(Modifier.width(8.dp)) }
             IconBox(R.drawable.ic_search, a.onSearch)
         }
-        if (a.onVoice != null) com.daftari.app.voice.PackStatusLine(Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        if (a.onVoice != null) com.daftari.app.voice.ModelStatusLine(Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         Column(Modifier.padding(horizontal = 16.dp)) {
             // hero
             Box(

@@ -24,6 +24,8 @@ data class ServerInfo(
     val otpReady: Boolean = false,
     val googleClientId: String = "",
     val aiReady: Boolean = false,
+    /** 1.2.0 server: online voice → text is enabled (a Groq key is set on the server) */
+    val voiceReady: Boolean = false,
 )
 
 @Serializable data class OtpRequest(val phone: String, val channel: String = "whatsapp")
@@ -113,6 +115,29 @@ class DaftariApi(private val baseUrl: () -> String, private val token: () -> Str
     val configured: Boolean get() = baseUrl().isNotBlank()
 
     suspend fun info(): ServerInfo = get("/api/v1/info")
+
+    /**
+     * 1.1.7: online speech → text (the server forwards to Groq Whisper; its key never reaches the app). Blocking — call it
+     * off the main thread. [wav] is 16 kHz mono PCM16; the whole call gives up after [timeoutSec]. Throws [ApiException]
+     * ("voice_disabled" when the server has no key, "offline" on no network / timeout).
+     */
+    fun transcribeVoice(wav: ByteArray, timeoutSec: Long = 8): String {
+        val client = http.newBuilder().callTimeout(timeoutSec, TimeUnit.SECONDS).connectTimeout(5, TimeUnit.SECONDS).readTimeout(timeoutSec, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false).build()
+        val rb = Request.Builder().url(url("/api/v1/voice/transcribe")).post(wav.toRequestBody("audio/wav".toMediaType()))
+        token().takeIf { it.isNotBlank() }?.let { rb.header("Authorization", "Bearer $it") }
+        val resp = try { client.newCall(rb.header("Accept", "application/json").build()).execute() }
+            catch (e: IOException) { throw ApiException("offline", "لا يوجد اتصال بالإنترنت أو أن الخادم لا يستجيب") }
+        resp.use { r ->
+            val text = r.body?.string().orEmpty()
+            val obj = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
+            if (!r.isSuccessful) {
+                val code = runCatching { obj?.get("error")?.jsonObject?.get("code")?.jsonPrimitive?.content }.getOrNull() ?: "http_${r.code}"
+                throw ApiException(code, "تعذّر التعرّف عبر الإنترنت", r.code)
+            }
+            return runCatching { obj?.get("text")?.jsonPrimitive?.content }.getOrNull().orEmpty().trim()
+        }
+    }
     suspend fun google(g: GoogleLogin): AuthResult = post("/api/v1/auth/google", g)
     suspend fun chat(r: ChatRequest): ChatReply = post("/api/v1/chat", r)
     suspend fun smartImport(r: ImportRequest): ImportResponse = post("/api/v1/import", r)

@@ -37,13 +37,28 @@ android {
         applicationId = "com.daftari.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.1.6"
+        versionCode = 10
+        versionName = "1.1.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         buildConfigField("String", "SERVER_URL", "\"" + serverUrl.replace("\"", "") + "\"")
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"" + googleClientId.replace("\"", "") + "\"")
         buildConfigField("String", "DF_GOOGLE_WEB_CLIENT_ID", "\"" + googleClientId.replace("\"", "") + "\"")
+        // 1.1.7: offline voice — whisper.cpp built for phones only (arm64 + armv7), always optimised (see src/main/cpp)
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf("-DANDROID_STL=c++_static", "-DCMAKE_BUILD_TYPE=Release")
+            }
+        }
+    }
+
+    ndkVersion = "28.2.13676358"
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     signingConfigs {

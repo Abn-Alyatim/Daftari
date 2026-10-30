@@ -181,6 +181,8 @@ fun MoneySheet(
     var heard by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(voice?.transcript.orEmpty()) }
     var heardKind by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(voice?.kind?.name.orEmpty()) }
     var filled by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(voice?.let { voiceFilled(it, debt) }.orEmpty()) }
+    // 1.1.7: which engine heard it («عبر الإنترنت» / «دون إنترنت»)
+    var heardVia by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(if (voice?.transcript.isNullOrBlank()) "" else com.daftari.app.voice.VoiceLast.via?.label.orEmpty()) }
     var listening by remember { mutableStateOf(false) }
     val amountFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
@@ -214,12 +216,12 @@ fun MoneySheet(
                 if (d.amountText.isNotEmpty()) amount = d.amountText
                 d.currency?.let { payCur = it }
                 if (d.note.isNotBlank()) { if (debt) items = d.note else note = d.note }
-                heard = text; heardKind = d.kind?.name.orEmpty()
+                heard = text; heardKind = d.kind?.name.orEmpty(); heardVia = com.daftari.app.voice.VoiceLast.via?.label.orEmpty()
                 filled = voiceFilled(com.daftari.app.voice.VoicePrefill.of(d), debt)
             },
             onDismiss = { listening = false },
         )
-        com.daftari.app.voice.PackStatusLine(Modifier.padding(top = 10.dp))
+        com.daftari.app.voice.ModelStatusLine(Modifier.padding(top = 10.dp))
         if (heard.isNotBlank()) {
             val saidOther = heardKind.isNotEmpty() && (heardKind == com.daftari.app.voice.VoiceKind.DEBT.name) != debt
             val otherName = if (debt) (if (landlord) "دفعة" else "تسديد") else "دين جديد"
@@ -231,6 +233,7 @@ fun MoneySheet(
                     sw(com.daftari.app.voice.VoicePrefill(amount, payCur.takeIf { it != currency }, if (debt) items else note, heard,
                         com.daftari.app.voice.VoiceKind.entries.firstOrNull { it.name == heardKind }))
                 } },
+                via = heardVia,
             )
         }
         Column(
