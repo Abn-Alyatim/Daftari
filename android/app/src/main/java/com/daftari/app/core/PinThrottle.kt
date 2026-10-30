@@ -23,6 +23,9 @@ class PinThrottle(private val store: Store, private val now: () -> Long = System
         return minOf(left, LOCK_MS)
     }
 
+    /** 1.1.4: a new password (set after Google re-verification) clears the lockout. */
+    fun reset() { store.putLong(K_FAILS, 0); store.putLong(K_UNTIL, 0) }
+
     fun triesLeft(): Int = (MAX_TRIES - store.getLong(K_FAILS).toInt()).coerceIn(0, MAX_TRIES)
 
     sealed interface Result { data object Ok : Result; data class Wrong(val left: Int) : Result; data class Locked(val ms: Long) : Result }

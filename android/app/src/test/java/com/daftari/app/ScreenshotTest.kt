@@ -19,7 +19,8 @@ import com.daftari.app.domain.Ledger
 import com.daftari.app.domain.Role
 import com.daftari.app.importer.ImportResult
 import com.daftari.app.importer.ImportRow
-import com.daftari.app.ui.auth.LoginScreen
+import com.daftari.app.ui.auth.EntryMode
+import com.daftari.app.ui.auth.EntryScreen
 import com.daftari.app.ui.chat.ChatScreen
 import com.daftari.app.ui.common.ClipConfig
 import com.daftari.app.ui.extra.ImportScreen
@@ -112,6 +113,6 @@ class ScreenshotTest {
         )
         shot("13_import_review") { ImportScreen(ImportResult(rows, "سوق الكحلاني", "سامي الهلباء"), false, true, Role.LANDLORD, Currency.YER, {}, {}, {}) }
     }
-    @Test fun s14_login() { shot("14_login") { LoginScreen(Role.SHOP_OWNER, {}, true, true, { _, _ -> }, {}, {}) } }
+    @Test fun s14_login() { shot("14_login") { EntryScreen(EntryMode.FIRST_RUN, Role.SHOP_OWNER, {}) } }
     @Test fun s15_lock() { shot("15_lock") { LockScreen(false, true, {}, { "كلمة السر غير صحيحة" }) } }
 }

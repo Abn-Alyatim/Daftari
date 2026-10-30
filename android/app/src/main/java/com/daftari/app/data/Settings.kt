@@ -53,7 +53,19 @@ data class AppSettings(
     val ratesJson: String = "",
     /** 1.1.0 filled the currency of accounts from before multi-currency. */
     val currencyFilled: Boolean = false,
+    /** 1.1.4: the Google account that owns this دفتري ("" = not signed in → the first-run screen). */
+    val googleEmail: String = "",
+    val googleName: String = "",
+    /** 1.1.4: Google sign-in failed on this phone and he chose to continue without it (password only); the Google button stays offered. */
+    val authLocal: Boolean = false,
+    /** 1.1.4: open the app with the fingerprint (the app password is always the fallback). */
+    val biometricOn: Boolean = false,
+    /** 1.1.4: the mandatory daily Drive copy runs at this local time (default 02:00); it cannot be switched off, only moved. */
+    val backupMinuteOfDay: Int = 120,
 ) {
+    val hasAccount: Boolean get() = googleEmail.isNotBlank() || authLocal
+    val backupHour: Int get() = (backupMinuteOfDay / 60).coerceIn(0, 23)
+    val backupMinute: Int get() = (backupMinuteOfDay % 60).coerceIn(0, 59)
     val rates: com.daftari.app.core.Rates get() = com.daftari.app.core.Rates.parse(ratesJson)
     val hasPassword: Boolean get() = passwordHash.isNotBlank()
 }
@@ -89,6 +101,11 @@ class SettingsStore(private val context: Context) {
         val bookId = stringPreferencesKey("book_id")
         val rates = stringPreferencesKey("rates")
         val curFilled = booleanPreferencesKey("currency_filled")
+        val gEmail = stringPreferencesKey("google_email")
+        val gName = stringPreferencesKey("google_name")
+        val authLocal = booleanPreferencesKey("auth_local")
+        val bio = booleanPreferencesKey("biometric_on")
+        val backupAt = intPreferencesKey("backup_minute_of_day")
     }
 
     val settings: Flow<AppSettings> = context.store.data.map { it.toSettings() }
@@ -123,6 +140,11 @@ class SettingsStore(private val context: Context) {
         bookId = this[K.bookId] ?: "",
         ratesJson = this[K.rates] ?: "",
         currencyFilled = this[K.curFilled] ?: false,
+        googleEmail = this[K.gEmail] ?: "",
+        googleName = this[K.gName] ?: "",
+        authLocal = this[K.authLocal] ?: false,
+        biometricOn = this[K.bio] ?: false,
+        backupMinuteOfDay = this[K.backupAt] ?: 120,
     )
 
     suspend fun update(block: (AppSettings) -> AppSettings) {
@@ -136,6 +158,8 @@ class SettingsStore(private val context: Context) {
             p[K.proUntil] = n.proUntil; p[K.trial] = n.trialStartedAt; p[K.alerts] = n.alertsEnabled
             p[K.bEnc] = n.backupEncrypted; p[K.drive] = n.driveAccount; p[K.driveAuto] = n.driveAuto; p[K.lastDrive] = n.lastDriveBackupAt
             p[K.bookId] = n.bookId; p[K.rates] = n.ratesJson; p[K.curFilled] = n.currencyFilled
+            p[K.gEmail] = n.googleEmail; p[K.gName] = n.googleName; p[K.authLocal] = n.authLocal; p[K.bio] = n.biometricOn
+            p[K.backupAt] = n.backupMinuteOfDay.coerceIn(0, 24 * 60 - 1)
         }
     }
 }

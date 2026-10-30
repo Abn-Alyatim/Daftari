@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.sp
 import com.daftari.app.R
 import com.daftari.app.core.AppInfo
 import com.daftari.app.core.Currency
-import com.daftari.app.core.Phone
 import com.daftari.app.domain.Role
 import com.daftari.app.ui.common.Chip
 import com.daftari.app.ui.common.DfCard
@@ -84,13 +83,21 @@ private fun RoleCard(@Suppress("UNUSED_PARAMETER") r: Role, title: String, sub: 
     }
 }
 
+/** 1.1.4 launch screen. FIRST_RUN: Google only. RETURNING: the app password + fingerprint. Same design (logo, title, role cards) in both. */
+enum class EntryMode { FIRST_RUN, RETURNING }
+
 @Composable
-fun LoginScreen(
-    role: Role, onRole: (Role) -> Unit, serverReady: Boolean, googleReady: Boolean,
-    onSendOtp: (phone: String, channel: String) -> Unit, onGoogle: () -> Unit, onOffline: () -> Unit, onLogoLongPress: () -> Unit = {},
+fun EntryScreen(
+    mode: EntryMode, role: Role, onRole: (Role) -> Unit,
+    googleReady: Boolean = true, onGoogle: () -> Unit = {}, googleError: String? = null, onWithoutGoogle: (() -> Unit)? = null,
+    roleNote: String? = null, account: String = "", hasBiometric: Boolean = false, autoBiometric: Boolean = false,
+    onBiometric: () -> Unit = {}, onPassword: (String) -> String? = { null }, onForgot: () -> Unit = {}, onLogoLongPress: () -> Unit = {},
 ) {
     val c = Df.c
-    var phone by remember { mutableStateOf("") }
+    val blue = if (c.isDark) c.primaryLight else c.primary
+    var pw by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    if (mode == EntryMode.RETURNING && autoBiometric && hasBiometric) androidx.compose.runtime.LaunchedEffect(Unit) { onBiometric() }
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxWidth().height(380.dp).background(Brush.radialGradient(listOf(c.primary.copy(alpha = if (c.isDark) 0.28f else 0.08f), Color.Transparent), radius = 700f)))
         Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 20.dp)) {
@@ -101,83 +108,72 @@ fun LoginScreen(
             T("ديونك وإيجاراتك… مرتبة ومحفوظة", 12.5.sp, FontWeight.Medium, c.muted, Modifier.fillMaxWidth(), TextAlign.Center)
             Spacer(Modifier.height(18.dp))
             RolePicker(role, onRole)
-            Spacer(Modifier.height(18.dp))
-            T("رقم الجوال", 11.5.sp, FontWeight.Medium, c.muted)
-            Spacer(Modifier.height(6.dp))
-            Row(
-                Modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(16.dp)).background(c.s2).border(1.dp, c.outline2, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.weight(1f)) {
-                    if (phone.isEmpty()) T("77 123 4567", 15.sp, FontWeight.SemiBold, c.muted2)
-                    BasicTextField(phone, { phone = it }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        textStyle = TextStyle(color = c.text, fontSize = 15.sp, fontFamily = NotoArabic, fontWeight = FontWeight.SemiBold, textDirection = TextDirection.Ltr),
-                        cursorBrush = SolidColor(c.primary), modifier = Modifier.fillMaxWidth())
+            roleNote?.let { T(it, 11.5.sp, FontWeight.Medium, blue, Modifier.fillMaxWidth().padding(top = 8.dp), TextAlign.Center, lineHeight = 18.sp) }
+            Spacer(Modifier.height(22.dp))
+            if (mode == EntryMode.FIRST_RUN) {
+                Row(
+                    Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(16.dp)).background(if (c.isDark) Color.White else c.s2).clickable(enabled = googleReady, onClick = onGoogle),
+                    horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    DfIcon(R.drawable.ic_si_google, 19.dp, Color(0xFF4285F4)); Spacer(Modifier.width(8.dp))
+                    T("المتابعة باستخدام Google", 15.sp, FontWeight.Bold, Color(0xFF111111))
                 }
-                Box(Modifier.width(1.dp).height(24.dp).background(c.outline2)); Spacer(Modifier.width(10.dp))
-                T("+967 🇾🇪", 14.sp, FontWeight.SemiBold, c.muted)
+                googleError?.let { T(it, 12.sp, FontWeight.Medium, c.bad, Modifier.fillMaxWidth().padding(top = 10.dp), TextAlign.Center, lineHeight = 19.sp) }
+                if (onWithoutGoogle != null) T("تعذّر الدخول بـ Google؟ تابِع بكلمة سر فقط مؤقتاً", 12.sp, FontWeight.SemiBold, c.muted,
+                    Modifier.fillMaxWidth().padding(top = 12.dp).clickable(onClick = onWithoutGoogle), TextAlign.Center)
+                T("حسابك في Google يحمي دفترك ونسخه الاحتياطية · بياناتك على جوالك أولاً", 11.sp, color = c.muted2, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), align = TextAlign.Center, lineHeight = 17.sp)
+            } else {
+                if (account.isNotBlank()) T("\u2066$account\u2069", 12.sp, FontWeight.SemiBold, c.muted, Modifier.fillMaxWidth().padding(bottom = 10.dp), TextAlign.Center, maxLines = 1)
+                Field("", pw, { v -> pw = v.filter(Char::isDigit).take(12); error = null }, Modifier.fillMaxWidth(), placeholder = "كلمة السر", keyboard = KeyboardType.NumberPassword, ltr = true, icon = R.drawable.ic_key_round)
+                error?.let { T(it, 12.sp, FontWeight.SemiBold, c.bad, Modifier.fillMaxWidth().padding(top = 6.dp), align = TextAlign.Center) }
+                Spacer(Modifier.height(12.dp))
+                PrimaryButton("فتح", Modifier.fillMaxWidth(), enabled = pw.length >= 4) { onPassword(pw)?.let { error = it; pw = "" } }
+                if (hasBiometric) { Spacer(Modifier.height(10.dp)); GhostButton("البصمة", Modifier.fillMaxWidth(), R.drawable.ic_fingerprint, onClick = onBiometric) }
+                T("نسيت كلمة المرور؟", 12.5.sp, FontWeight.Bold, blue, Modifier.fillMaxWidth().padding(top = 16.dp).clickable(onClick = onForgot), TextAlign.Center)
             }
-            PrimaryButton("أرسل رمز التحقق عبر واتساب", Modifier.padding(top = 14.dp).fillMaxWidth(), R.drawable.ic_si_whatsapp, enabled = serverReady && Phone.normalize(phone) != null) { onSendOtp(phone, "whatsapp") }
-            Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.Center) {
-                T("ليس لديك واتساب؟ ", 12.5.sp, color = c.muted)
-                T("أرسله برسالة SMS", 12.5.sp, FontWeight.Bold, if (c.isDark) c.primaryLight else c.primary, Modifier.clickable(enabled = serverReady) { onSendOtp(phone, "sms") })
-            }
-            Row(Modifier.padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f).height(1.dp).background(c.outline)); T("  أو  ", 12.sp, color = c.muted2); Box(Modifier.weight(1f).height(1.dp).background(c.outline))
-            }
-            Row(
-                Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(16.dp)).background(if (c.isDark) Color.White else c.s2).clickable(enabled = googleReady, onClick = onGoogle),
-                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
-            ) {
-                DfIcon(R.drawable.ic_si_google, 19.dp, Color(0xFF4285F4)); Spacer(Modifier.width(8.dp))
-                T("المتابعة باستخدام Google", 15.sp, FontWeight.Bold, Color(0xFF111111))
-            }
-            if (!serverReady) T("الدخول بالحساب قيد التجهيز (الخادم لم يُنشر بعد) — يمكنك البدء الآن وبياناتك محفوظة على جوالك.", 11.5.sp, color = c.warn,
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp), align = TextAlign.Center, lineHeight = 19.sp)
-            GhostButton("ابدأ دون حساب", Modifier.padding(top = 12.dp).fillMaxWidth(), R.drawable.ic_smartphone, onClick = onOffline)
-            T("بياناتك محفوظة على جوالك أولاً وتعمل دون إنترنت · قفل بالبصمة", 11.sp, color = c.muted2, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), align = TextAlign.Center)
         }
     }
 }
 
+/** After the first Google sign-in (or «نسيت كلمة المرور؟»): the app password (+ confirm) and the fingerprint offer. */
 @Composable
-fun OtpScreen(phone: String, channel: String, devCode: String?, onBack: () -> Unit, onVerify: (code: String, email: String) -> Unit, onResend: (String) -> Unit) {
+fun SetPasswordScreen(account: String, hasBiometric: Boolean, reset: Boolean, onEnableBiometric: (onResult: (Boolean) -> Unit) -> Unit, onSave: (pw: String, biometric: Boolean) -> Unit) {
     val c = Df.c
-    var code by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        IconBox(R.drawable.ic_arrow_right, onBack)
-        Spacer(Modifier.height(14.dp))
-        Box(Modifier.size(60.dp).clip(RoundedCornerShape(20.dp)).background(if (channel == "sms") c.primarySoft else Color(0x1F25D366)), contentAlignment = Alignment.Center) {
-            DfIcon(if (channel == "sms") R.drawable.ic_message_square else R.drawable.ic_si_whatsapp, 30.dp, if (channel == "sms") c.primary else Color(0xFF25D366))
+    var a by remember { mutableStateOf("") }
+    var b by remember { mutableStateOf("") }
+    var bio by remember { mutableStateOf(false) }
+    val problem = com.daftari.app.core.AuthGate.passwordProblem(a, b)
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 20.dp)) {
+        Box(Modifier.align(Alignment.CenterHorizontally).size(84.dp).clip(RoundedCornerShape(26.dp)).border(1.dp, c.outline2, RoundedCornerShape(26.dp)), contentAlignment = Alignment.Center) {
+            DfIcon(R.drawable.ic_key_round, 34.dp, if (c.isDark) c.primaryLight else c.primary)
         }
-        T("أدخل رمز التحقق", 22.sp, FontWeight.ExtraBold, modifier = Modifier.padding(top = 14.dp))
-        T("أرسلنا رمزاً من 6 أرقام ${if (channel == "sms") "برسالة SMS" else "عبر واتساب"} الرقم ${Phone.display(phone)}", 13.sp, color = c.muted, lineHeight = 22.sp)
-        if (devCode != null) T("وضع التجربة: الرمز $devCode", 12.sp, FontWeight.Bold, c.warn)
+        T(if (reset) "كلمة سر جديدة" else "أنشئ كلمة سر لدفتري", 20.sp, FontWeight.ExtraBold, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), align = TextAlign.Center)
+        T("تفتح بها التطبيق في كل مرة، وتؤكّد بها الحذف والتعديل. لا تُحفظ إلا مشفّرة على جوالك.", 13.sp, color = c.muted, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), align = TextAlign.Center, lineHeight = 20.sp)
+        if (account.isNotBlank()) Row(Modifier.align(Alignment.CenterHorizontally).padding(top = 12.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, c.outline2, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            DfIcon(R.drawable.ic_si_google, 14.dp, Color(0xFF4285F4)); Spacer(Modifier.width(6.dp)); T("\u2066$account\u2069", 12.sp, FontWeight.SemiBold, c.ok, maxLines = 1)
+        }
         Spacer(Modifier.height(20.dp))
-        Box(Modifier.fillMaxWidth().height(60.dp).clip(RoundedCornerShape(16.dp)).background(c.s2).border(1.5.dp, c.primary, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
-            BasicTextField(code, { v -> code = v.filter { it.isDigit() || it in '\u0660'..'\u0669' }.take(6) }, singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                textStyle = TextStyle(color = c.text, fontSize = 26.sp, fontFamily = NotoArabic, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, letterSpacing = 10.sp, textDirection = TextDirection.Ltr),
-                cursorBrush = SolidColor(c.primary), modifier = Modifier.fillMaxWidth())
+        Field("كلمة السر (4 أرقام أو أكثر)", a, { a = it.filter(Char::isDigit).take(12) }, keyboard = KeyboardType.NumberPassword, ltr = true, icon = R.drawable.ic_key_round)
+        Spacer(Modifier.height(12.dp))
+        Field("تأكيد كلمة السر", b, { b = it.filter(Char::isDigit).take(12) }, keyboard = KeyboardType.NumberPassword, ltr = true, icon = R.drawable.ic_key_round)
+        if (b.isNotEmpty() && problem != null) T(problem, 12.sp, FontWeight.SemiBold, c.bad, Modifier.padding(top = 6.dp))
+        if (hasBiometric) {
+            DfCard(Modifier.padding(top = 16.dp).fillMaxWidth()) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    DfIcon(R.drawable.ic_fingerprint, 22.dp, if (c.isDark) c.primaryLight else c.primary); Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) { T("تفعيل البصمة", 14.sp, FontWeight.Bold); T("افتح دفتري بالبصمة، وكلمة السر احتياطاً", 11.5.sp, color = c.muted) }
+                    Toggle(bio) { on -> if (on) onEnableBiometric { ok -> bio = ok } else bio = false }
+                }
+            }
         }
-        Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            T("لم يصل؟", 12.5.sp, color = c.muted)
-            Spacer(Modifier.width(8.dp))
-            T("أعد الإرسال", 12.5.sp, FontWeight.Bold, if (c.isDark) c.primaryLight else c.primary, Modifier.clickable { onResend(channel) })
-            Spacer(Modifier.weight(1f))
-            T(if (channel == "sms") "أرسل عبر واتساب" else "أرسل SMS بدلاً منه", 12.5.sp, FontWeight.Bold, c.muted, Modifier.clickable { onResend(if (channel == "sms") "whatsapp" else "sms") })
-        }
-        Spacer(Modifier.height(18.dp))
-        Field("البريد الإلكتروني (اختياري للنسخ الاحتياطي)", email, { email = it }, placeholder = "name@gmail.com", keyboard = KeyboardType.Email, ltr = true, icon = R.drawable.ic_mail)
-        PrimaryButton("تحقق ودخول", Modifier.padding(top = 20.dp).fillMaxWidth(), R.drawable.ic_check, enabled = code.length == 6) { onVerify(code, email) }
+        PrimaryButton("حفظ والمتابعة", Modifier.padding(top = 20.dp).fillMaxWidth(), R.drawable.ic_check, enabled = problem == null) { onSave(a, bio) }
     }
 }
 
 @Composable
 fun SetupScreen(
     role: Role, onRole: (Role) -> Unit, defaultOwner: String,
-    onDone: (business: String, owner: String, shops: Int, currency: Currency, demo: Boolean) -> Unit, onImport: () -> Unit,
+    onDone: (business: String, owner: String, shops: Int, currency: Currency, demo: Boolean) -> Unit, onImport: () -> Unit, showRole: Boolean = true,
 ) {
     val c = Df.c
     val landlord = role == Role.LANDLORD
@@ -189,7 +185,7 @@ fun SetupScreen(
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         T("لنجهّز دفترك", 22.sp, FontWeight.ExtraBold)
         T("دقيقة واحدة وتبدأ. يمكن تعديل كل شيء لاحقاً من الإعدادات.", 13.sp, color = c.muted)
-        RolePicker(role, onRole)
+        if (showRole) RolePicker(role, onRole) else T("دفتر «${role.labelAr}»", 13.5.sp, FontWeight.Bold, if (c.isDark) c.primaryLight else c.primary)
         Field(if (landlord) "اسم السوق" else "اسم المحل / البقالة", business, { business = it }, placeholder = if (landlord) "مثلاً سوق الكحلاني" else "مثلاً بقالة الأمانة", icon = if (landlord) R.drawable.ic_building_2 else R.drawable.ic_store)
         Field(if (landlord) "اسم المؤجر" else "اسمك", owner, { owner = it }, placeholder = "الاسم", icon = R.drawable.ic_user)
         if (landlord) Field("عدد المحلات في السوق", shops, { shops = it.filter(Char::isDigit) }, placeholder = "مثلاً 200", keyboard = KeyboardType.Number, ltr = true)

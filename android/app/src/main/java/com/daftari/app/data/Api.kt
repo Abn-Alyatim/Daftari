@@ -93,8 +93,6 @@ class DaftariApi(private val baseUrl: () -> String, private val token: () -> Str
     val configured: Boolean get() = baseUrl().isNotBlank()
 
     suspend fun info(): ServerInfo = get("/api/v1/info")
-    suspend fun requestOtp(phone: String, channel: String): OtpRequestResult = post("/api/v1/auth/otp/request", OtpRequest(phone, channel))
-    suspend fun verifyOtp(v: OtpVerify): AuthResult = post("/api/v1/auth/otp/verify", v)
     suspend fun google(g: GoogleLogin): AuthResult = post("/api/v1/auth/google", g)
     suspend fun chat(r: ChatRequest): ChatReply = post("/api/v1/chat", r)
     suspend fun smartImport(r: ImportRequest): ImportResponse = post("/api/v1/import", r)

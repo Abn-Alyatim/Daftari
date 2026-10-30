@@ -114,9 +114,9 @@ abstract class AuditDb : RoomDatabase() {
             override fun onOpen(db: SupportSQLiteDatabase) = GUARDS.forEach { db.execSQL(it) }
         }
 
-        fun create(context: Context, inMemory: Boolean = false): AuditDb =
+        fun create(context: Context, inMemory: Boolean = false, name: String = "daftari_log.db"): AuditDb =
             (if (inMemory) Room.inMemoryDatabaseBuilder(context, AuditDb::class.java).allowMainThreadQueries()
-            else Room.databaseBuilder(context, AuditDb::class.java, "daftari_log.db")).addCallback(guard).build()
+            else Room.databaseBuilder(context, AuditDb::class.java, name)).addCallback(guard).build()
     }
 }
 
@@ -126,8 +126,8 @@ interface HeadAnchor {
     fun write(seq: Long, hash: String)
 }
 
-class PrefsAnchor(context: Context) : HeadAnchor {
-    private val p = context.getSharedPreferences("daftari_log_anchor", Context.MODE_PRIVATE)
+class PrefsAnchor(context: Context, name: String = "daftari_log_anchor") : HeadAnchor {
+    private val p = context.getSharedPreferences(name, Context.MODE_PRIVATE)
     override fun read(): Pair<Long, String>? = p.getString("head", null)?.split("|")?.takeIf { it.size == 2 }?.let { it[0].toLong() to it[1] }
     override fun write(seq: Long, hash: String) { p.edit().putString("head", "$seq|$hash").apply() }
 }

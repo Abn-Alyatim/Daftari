@@ -19,10 +19,10 @@ import com.daftari.app.data.ChatRequest
 import com.daftari.app.data.ChatTurn
 import com.daftari.app.data.Dashboard
 import com.daftari.app.data.Demo
-import com.daftari.app.data.GoogleLogin
 import com.daftari.app.data.ImportRequest
-import com.daftari.app.data.OtpVerify
 import com.daftari.app.data.PasswordHasher
+import com.daftari.app.core.AuthGate
+import com.daftari.app.core.WorkspaceProfile
 import com.daftari.app.data.ServerInfo
 import com.daftari.app.domain.Entry
 import com.daftari.app.domain.EntryType
@@ -77,11 +77,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         refreshServerInfo()
+        if (g.workspaces.consumeGrant(android.os.SystemClock.elapsedRealtime())) unlocked.value = true
         viewModelScope.launch {
             val st = g.settings.current()
+            if (st.onboarded) g.workspaces.initLegacy(st.role)
             if (st.bookId.isBlank()) g.settings.update { it.copy(bookId = java.util.UUID.randomUUID().toString()) }
             if (!st.currencyFilled) { repo.fillLegacyCurrency(st.currency.code); g.settings.update { it.copy(currencyFilled = true) } }
-            if (st.driveAccount.isNotBlank()) com.daftari.app.backup.DriveWorker.schedule(getApplication(), st.driveAuto)
+            if (st.driveAccount.isNotBlank()) com.daftari.app.backup.DriveWorker.schedule(getApplication(), st.backupMinuteOfDay, replace = false)
         }
     }
 
@@ -92,43 +94,91 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun say(m: String) { toast.value = m }
 
     // ---------- auth ----------
-    val otpPhone = MutableStateFlow("")
-    val otpChannel = MutableStateFlow("whatsapp")
-    val otpDevCode = MutableStateFlow<String?>(null)
+    // ---------- 1.1.4 account: Google first, then the app password (+ fingerprint), one book per role ----------
+    /** the role he picked on the first-run screen when it differs from the role his existing data belongs to (opened after the password step). */
+    private var pendingRole: Role? = null
+    /** «نسيت كلمة المرور؟» verified with the owning Google account: the set-password screen is shown again. */
+    val resettingPassword = MutableStateFlow(false)
 
-    fun requestOtp(rawPhone: String, channel: String, onSent: () -> Unit) {
-        val phone = Phone.normalize(rawPhone) ?: return say("اكتب رقم جوال صحيح")
-        viewModelScope.launch {
-            busy.value = if (channel == "sms") "جارٍ إرسال الرمز برسالة…" else "جارٍ إرسال الرمز عبر واتساب…"
-            try {
-                val r = g.api.requestOtp(phone, channel)
-                otpPhone.value = phone; otpChannel.value = r.channel.ifBlank { channel }; otpDevCode.value = r.devCode
-                onSent()
-            } catch (e: ApiException) { say(e.message) } finally { busy.value = null }
+    /** First-run Google sign-in succeeded. Existing data (an upgrade from 1.1.3) stays attached to the role it was set up with. */
+    fun googleSignedIn(email: String, name: String, role: Role) = viewModelScope.launch {
+        val st = g.settings.current()
+        val dataRole = if (st.onboarded) st.role else role
+        g.workspaces.initLegacy(dataRole)
+        pendingRole = role.takeIf { it != dataRole }
+        val sameOwner = AuthGate.sameAccount(st.googleEmail.ifBlank { st.driveAccount }, email)
+        g.settings.update {
+            it.copy(googleEmail = email, googleName = name, email = email, signedIn = true, authLocal = false, role = dataRole,
+                ownerName = it.ownerName.ifBlank { name }, passwordHash = "", lockEnabled = true,
+                driveAccount = if (sameOwner) it.driveAccount else "")
         }
     }
 
-    fun verifyOtp(code: String, role: Role, email: String, onDone: () -> Unit) = viewModelScope.launch {
-        busy.value = "جارٍ التحقق من الرمز…"
-        try {
-            val r = g.api.verifyOtp(OtpVerify(otpPhone.value, code.trim(), role.name, email.trim()))
-            g.settings.update { it.copy(signedIn = true, authToken = r.token, phone = r.user.phone.ifBlank { otpPhone.value }, email = r.user.email.ifBlank { email }, role = role, ownerName = it.ownerName.ifBlank { r.user.name }) }
-            onDone()
-        } catch (e: ApiException) { say(e.message) } finally { busy.value = null }
+    /** Google sign-in is impossible on this phone (shown only after a failed attempt): continue with the app password only. */
+    fun continueWithoutGoogle(role: Role) = viewModelScope.launch {
+        val st = g.settings.current()
+        val dataRole = if (st.onboarded) st.role else role
+        g.workspaces.initLegacy(dataRole)
+        pendingRole = role.takeIf { it != dataRole }
+        g.settings.update { it.copy(authLocal = true, role = dataRole, passwordHash = "", lockEnabled = true) }
     }
 
-    fun googleSignedIn(idToken: String, email: String, name: String, role: Role, onDone: () -> Unit) = viewModelScope.launch {
-        busy.value = "جارٍ تسجيل الدخول بحساب Google…"
-        try {
-            val r = g.api.google(GoogleLogin(idToken, role.name))
-            g.settings.update { it.copy(signedIn = true, authToken = r.token, email = r.user.email.ifBlank { email }, phone = r.user.phone, role = role, ownerName = it.ownerName.ifBlank { r.user.name.ifBlank { name } }) }
-            onDone()
-        } catch (e: ApiException) { say(e.message) } finally { busy.value = null }
+    /** The set-password step (first run, or after «نسيت كلمة المرور؟»). */
+    fun setAppPassword(pw: String, biometric: Boolean, restart: () -> Unit) = viewModelScope.launch {
+        g.settings.update { it.copy(passwordHash = PasswordHasher.hash(pw), lockEnabled = true, biometricOn = biometric) }
+        pinGuard.reset()
+        resettingPassword.value = false
+        unlocked.value = true
+        pendingRole?.let { r -> pendingRole = null; switchWorkspace(r, restart) }
     }
 
-    /** Works without any server: everything stays on the phone. */
-    fun continueOffline(role: Role, onDone: () -> Unit) = viewModelScope.launch {
-        g.settings.update { it.copy(role = role) }; onDone()
+    /** «نسيت كلمة المرور؟»: the Google account he just picked must be the one that owns this دفتري. */
+    fun forgotVerified(pickedEmail: String): Boolean {
+        val ok = AuthGate.sameAccount(s().googleEmail, pickedEmail)
+        if (ok) resettingPassword.value = true else say("هذا الحساب ($pickedEmail) ليس الحساب المرتبط بدفتري (${s().googleEmail}).")
+        return ok
+    }
+
+    /** Returning screen: unlocked with the password or the fingerprint, in the role picked on that screen. */
+    fun unlockAs(role: Role, restart: () -> Unit) {
+        if (role == s().role) unlocked.value = true else viewModelScope.launch { unlocked.value = true; switchWorkspace(role, restart) }
+    }
+
+    fun workspaceExists(role: Role): Boolean = role == s().role || g.workspaces.has(role)
+
+    /**
+     * Opens the other role's book under the same account, with no new sign-in: parks this book's profile, (best effort) sends it to
+     * Drive, loads the other one (a new, empty book the first time → the setup screen), then restarts so every store reopens on its files.
+     */
+    fun switchWorkspace(target: Role, restart: () -> Unit) = viewModelScope.launch {
+        val st = g.settings.current()
+        if (target == st.role) return@launch
+        g.workspaces.initLegacy(st.role)
+        busy.value = "جارٍ فتح دفتر «${target.labelAr}»…"
+        try {
+            if (st.driveAccount.isNotBlank()) withContext(Dispatchers.IO) {
+                kotlinx.coroutines.withTimeoutOrNull(20_000) {
+                    runCatching {
+                        (com.daftari.app.backup.GoogleDrive.authorize(getApplication(), st.driveAccount) as? com.daftari.app.backup.GoogleDrive.Auth.Token)?.let { t ->
+                            com.daftari.app.backup.GoogleDrive.upload(t.token, com.daftari.app.core.Workspaces.backupFileName(st.role, com.daftari.app.backup.DaftariFile.fileName()), com.daftari.app.backup.BackupMaker.bytes(g))
+                        }
+                    }
+                }
+            }
+            g.workspaces.saveProfile(st.role, WorkspaceProfile.of(st))
+            val next = g.workspaces.profile(target) ?: WorkspaceProfile(ownerName = st.ownerName, currency = st.currency.code, bookId = java.util.UUID.randomUUID().toString())
+            g.settings.update { next.applyTo(it, target) }
+            g.workspaces.setActive(target)
+            g.workspaces.grantUnlock(android.os.SystemClock.elapsedRealtime() + 30_000)
+        } finally { busy.value = null }
+        restart()
+    }
+
+    /** Settings «تسجيل الخروج من Google»: back to the first-run screen; the data stays on the phone. */
+    fun googleSignOut() = viewModelScope.launch {
+        g.settings.update { it.copy(googleEmail = "", googleName = "", signedIn = false, authToken = "", authLocal = false) }
+        unlocked.value = false
+        com.daftari.app.ui.auth.GoogleAuth.signOut(getApplication())
     }
 
     fun finishSetup(role: Role, business: String, owner: String, shopCount: Int, currency: com.daftari.app.core.Currency, demo: Boolean) = viewModelScope.launch {
@@ -161,10 +211,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun checkPassword(pw: String): Boolean = tryPassword(pw) == null
 
-    fun signOut() = viewModelScope.launch { g.settings.update { it.copy(signedIn = false, authToken = "") } }
+    fun signOut() = googleSignOut()
 
     fun wipeAll(onDone: () -> Unit) = viewModelScope.launch {
-        repo.wipe(); g.settings.update { AppSettings(theme = it.theme) }; onDone()
+        // the account (Google, password, fingerprint, Drive, backup time) survives: only this book is emptied → its setup screen
+        repo.wipe(); g.settings.update { AppSettings(theme = it.theme, role = it.role, googleEmail = it.googleEmail, googleName = it.googleName, email = it.email, signedIn = it.signedIn,
+            authLocal = it.authLocal, passwordHash = it.passwordHash, lockEnabled = it.lockEnabled, biometricOn = it.biometricOn, driveAccount = it.driveAccount,
+            backupMinuteOfDay = it.backupMinuteOfDay, trialStartedAt = it.trialStartedAt, proUntil = it.proUntil, ratesJson = it.ratesJson) }; onDone()
     }
 
     // ---------- ledger ----------
@@ -505,7 +558,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val bytes = com.daftari.app.backup.BackupMaker.bytes(g)
         val f = withContext(Dispatchers.IO) {
             val dir = java.io.File(getApplication<Application>().cacheDir, "exports").apply { mkdirs() }
-            java.io.File(dir, com.daftari.app.backup.DaftariFile.fileName()).apply { writeBytes(bytes) }
+            java.io.File(dir, backupFileName()).apply { writeBytes(bytes) }
         }
         withContext(Dispatchers.IO) { com.daftari.app.notify.DailyWorker.writeLocalBackup(getApplication(), bytes) }
         then(f)
@@ -586,7 +639,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) { say("تعذّر حفظ النسخة") } finally { busy.value = null }
     }
 
-    fun backupFileName() = com.daftari.app.backup.DaftariFile.fileName()
+    /** «Daftari-shop-…» / «Daftari-market-…»: each role's copies stay apart. */
+    fun backupFileName() = com.daftari.app.core.Workspaces.backupFileName(s().role, com.daftari.app.backup.DaftariFile.fileName())
 
     /** «استيراد نسخة» / a .daftari from Drive / the chat: verify, then show the counts preview. */
     fun openBackupBytes(name: String, bytes: ByteArray, password: String? = null, toChat: Boolean = false): Boolean {
@@ -652,10 +706,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---- Google Drive (hidden app folder)
-    fun driveConnect(launch: (android.app.PendingIntent) -> Unit) = viewModelScope.launch {
-        driveError.value = null
-        handleDriveAuth(com.daftari.app.backup.GoogleDrive.authorize(getApplication()), launch)
+    /** [account] = the email he just picked with Google sign-in (null when sign-in was skipped: Google then shows its own chooser). */
+    fun driveConnect(account: String?, launch: (android.app.PendingIntent) -> Unit) = viewModelScope.launch {
+        driveError.value = null; driveSetupMissing.value = false
+        driveHint = account
+        handleDriveAuth(com.daftari.app.backup.GoogleDrive.authorize(getApplication(), account), launch)
     }
+    private var driveHint: String? = null
+
+    /** Google sign-in on the backup screen failed for a reason that also blocks Drive (shown in the same red box). */
+    fun driveFailed(message: String, setupMissing: Boolean) { driveError.value = message; driveSetupMissing.value = setupMissing }
 
     fun driveAuthResult(data: android.content.Intent?) = viewModelScope.launch {
         handleDriveAuth(com.daftari.app.backup.GoogleDrive.fromIntent(getApplication(), data)) {}
@@ -664,18 +724,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun handleDriveAuth(a: com.daftari.app.backup.GoogleDrive.Auth, launch: (android.app.PendingIntent) -> Unit) {
         when (a) {
             is com.daftari.app.backup.GoogleDrive.Auth.NeedsUi -> launch(a.pending)
+            com.daftari.app.backup.GoogleDrive.Auth.Cancelled -> Unit
             is com.daftari.app.backup.GoogleDrive.Auth.Failed -> { driveError.value = a.message; driveSetupMissing.value = a.setupMissing }
             is com.daftari.app.backup.GoogleDrive.Auth.Token -> {
-                val email = com.daftari.app.backup.GoogleDrive.email(a.token).ifBlank { "حساب Google" }
+                driveError.value = null
+                val email = com.daftari.app.backup.GoogleDrive.email(a.token).ifBlank { driveHint.orEmpty() }.ifBlank { "حساب Google" }
                 g.settings.update { it.copy(driveAccount = email) }
-                com.daftari.app.backup.DriveWorker.schedule(getApplication(), s().driveAuto)
+                com.daftari.app.backup.DriveWorker.schedule(getApplication(), s().backupMinuteOfDay, replace = true)
                 driveSetupMissing.value = false
-                runCatching { driveFiles.value = com.daftari.app.backup.GoogleDrive.list(a.token) }
+                runCatching { driveFiles.value = mine(com.daftari.app.backup.GoogleDrive.list(a.token)) }
             }
         }
     }
 
-    private suspend fun driveToken(): String? = when (val a = com.daftari.app.backup.GoogleDrive.authorize(getApplication())) {
+    private fun mine(l: List<com.daftari.app.backup.DriveFile>) = l.filter { com.daftari.app.core.Workspaces.belongs(it.name, s().role, g.workspaces.legacy()) }
+
+    private suspend fun driveToken(): String? = when (val a = com.daftari.app.backup.GoogleDrive.authorize(getApplication(), s().driveAccount)) {
         is com.daftari.app.backup.GoogleDrive.Auth.Token -> a.token
         is com.daftari.app.backup.GoogleDrive.Auth.Failed -> { driveError.value = a.message; driveSetupMissing.value = a.setupMissing; null }
         else -> { driveError.value = "اضغط «ربط حساب Google» من جديد"; null }
@@ -685,15 +749,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         busy.value = "جارٍ رفع النسخة إلى Google Drive…"
         try {
             val t = driveToken() ?: return@launch
-            com.daftari.app.backup.GoogleDrive.upload(t, com.daftari.app.backup.DaftariFile.fileName(), com.daftari.app.backup.BackupMaker.bytes(g))
-            com.daftari.app.backup.GoogleDrive.prune(t)
+            com.daftari.app.backup.GoogleDrive.upload(t, backupFileName(), com.daftari.app.backup.BackupMaker.bytes(g))
+            com.daftari.app.backup.GoogleDrive.prune(t, s().role, g.workspaces.legacy())
             g.settings.update { it.copy(lastDriveBackupAt = System.currentTimeMillis()) }
-            driveFiles.value = com.daftari.app.backup.GoogleDrive.list(t)
+            driveFiles.value = mine(com.daftari.app.backup.GoogleDrive.list(t))
             say("تم الرفع إلى Google Drive ✅")
         } catch (e: Exception) { driveError.value = e.message ?: "تعذّر الرفع" } finally { busy.value = null }
     }
 
-    fun driveList() = viewModelScope.launch { runCatching { driveToken()?.let { driveFiles.value = com.daftari.app.backup.GoogleDrive.list(it) } }.onFailure { driveError.value = it.message } }
+    fun driveList() = viewModelScope.launch { runCatching { driveToken()?.let { driveFiles.value = mine(com.daftari.app.backup.GoogleDrive.list(it)) } }.onFailure { driveError.value = it.message } }
 
     fun driveRestore(f: com.daftari.app.backup.DriveFile) = viewModelScope.launch {
         busy.value = "جارٍ تنزيل النسخة…"
@@ -701,8 +765,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         catch (e: Exception) { driveError.value = e.message } finally { busy.value = null }
     }
 
-    fun driveAuto(on: Boolean) = viewModelScope.launch { g.settings.update { it.copy(driveAuto = on) }; com.daftari.app.backup.DriveWorker.schedule(getApplication(), on) }
-    fun driveUnlink() = viewModelScope.launch { g.settings.update { it.copy(driveAccount = "") }; com.daftari.app.backup.DriveWorker.schedule(getApplication(), false); driveFiles.value = emptyList() }
+    /** The daily Drive copy cannot be switched off (1.1.4) — only its time moves; the schedule realigns at once. */
+    fun setBackupTime(minuteOfDay: Int) = viewModelScope.launch {
+        g.settings.update { it.copy(backupMinuteOfDay = minuteOfDay.coerceIn(0, 24 * 60 - 1)) }
+        if (s().driveAccount.isNotBlank()) com.daftari.app.backup.DriveWorker.schedule(getApplication(), minuteOfDay, replace = true)
+        say("النسخ التلقائي يومياً الساعة ${com.daftari.app.core.BackupClock.label(minuteOfDay)}")
+    }
+
+    /** Asked once per launch: right after he signs in with Google, Drive is requested for the same account (the daily copy is mandatory). */
+    private var driveAsked = false
+    fun driveAutoConnect(launch: (android.app.PendingIntent) -> Unit) {
+        val st = s()
+        if (driveAsked || st.googleEmail.isBlank() || st.driveAccount.isNotBlank()) return
+        driveAsked = true; driveConnect(st.googleEmail, launch)
+    }
 
     // =================================================================== «انتقل من تطبيق آخر» (statement / database import)
     data class ImportState(

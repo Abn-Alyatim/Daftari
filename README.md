@@ -13,10 +13,11 @@ DF_STORE_FILE=... DF_STORE_PASSWORD=... DF_KEY_ALIAS=... DF_KEY_PASSWORD=... ./g
 cd ../server && npm install && npm test
 ```
 
-Google sign-in / Drive: put `DF_GOOGLE_WEB_CLIENT_ID=…apps.googleusercontent.com` in `android/local.properties` (never committed), or pass
-`-PDF_GOOGLE_WEB_CLIENT_ID=…` / the env var of the same name, then rebuild — no code change. Drive backup itself uses
-`AuthorizationClient` with the `drive.appdata` scope and only needs the **Android** OAuth client in Google Cloud
-(package `com.daftari.app` + the signing SHA-1) and the Google Drive API enabled.
+Google sign-in / Drive: put `DF_GOOGLE_WEB_CLIENT_ID=…apps.googleusercontent.com` (the **Web** OAuth client of the Cloud project)
+in `android/local.properties` (never committed), or pass `-PDF_GOOGLE_WEB_CLIENT_ID=…` / the env var of the same name, then rebuild —
+no code change. Sign-in is Credential Manager (`GetGoogleIdOption` authorized accounts → all accounts → `GetSignInWithGoogleOption`,
+serverClientId = the Web client); Drive is `AuthorizationClient` with `drive.appdata` on the same account. Both also need the
+**Android** OAuth client (package `com.daftari.app` + the signing SHA-1) in the same project and the Google Drive API enabled.
 
 ## 1.1.0
 - Google Drive: نسخ احتياطي الآن، نسخ يومي تلقائي لما يتوفر نت، «استرجاع» بقائمة النسخ بالتاريخ (مجلد مخفي appDataFolder). وبدون أي إعداد: «حفظ نسخة في Drive» و«استيراد نسخة» عبر قائمة الجوال.
@@ -43,3 +44,11 @@ Google sign-in / Drive: put `DF_GOOGLE_WEB_CLIENT_ID=…apps.googleusercontent.c
 - صورة الإيصال الاختيارية (حوالة / محفظة): زرّان متجاوران «التقاط صورة» (الكاميرا مباشرة) و«اختيار من المعرض». الكاميرا تحفظ في مجلد خاص بالتطبيق عبر FileProvider دون أي صلاحية تخزين أو كاميرا؛ الإلغاء لا يترك ملفاً، وإن لم يوجد تطبيق كاميرا تظهر رسالة ويُفتح المعرض.
 - الصورة (من الكاميرا أو المعرض) تُصغَّر إلى 1600 بكسل JPEG بجودة 80 وتُعدَّل حسب اتجاه التصوير، وتظهر مصغّرتها في نافذة الدفعة مع «إزالة»، وتُربط بالدفعة نفسها عند الحفظ.
 - نافذة الدفعة تحتفظ بالمبلغ والحقول والصورة عند تدوير الشاشة أو إذا أغلق النظام التطبيق أثناء التصوير.
+
+## 1.1.4
+- الدخول بحساب Google فقط (حُذف التحقق برقم الجوال وواتساب وSMS). أول تشغيل: الشاشة نفسها بالشعار وبطاقتَي «صاحب محل / صاحب سوق» وزر «المتابعة باستخدام Google» فقط. بعد الدخول: كلمة سر للتطبيق (PBKDF2 مملّح) + تفعيل البصمة.
+- كل تشغيل بعد ذلك: الشاشة نفسها، وبدل Google: كلمة السر + «فتح» + «البصمة» (تُعرض تلقائياً إن فُعّلت) و«نسيت كلمة المرور؟» (تحقق بحساب Google نفسه ثم كلمة سر جديدة).
+- دفتران بحساب Google واحد: «صاحب محل» و«صاحب سوق»، لكل منهما قاعدة بيانات و«سجل» وتذكيرات وملف تعريف منفصل. الدفتر الموجود قبل 1.1.4 يبقى بأسماء ملفاته الأصلية (لا نقل ولا فقدان)، والدور الآخر بملفات `daftari_<role>.db`. التبديل من بطاقات شاشة الدخول أو الإعدادات ← «الدفاتر»، دون تسجيل دخول جديد (يعيد تشغيل التطبيق).
+- نسخ Drive منفصلة لكل دفتر (`Daftari-shop-…` / `Daftari-market-…`، والنسخ القديمة بلا وسم تتبع الدفتر الأصلي)، والإبقاء على آخر 30 لكل دفتر. النسخ التلقائي إجباري يومياً الساعة 2:00 صباحاً (يمكن تغيير الوقت فقط)، عبر WorkManager يعيد جدولة نفسه لموعد اليوم التالي، ويعيد المحاذاة عند تغيير المنطقة الزمنية/الساعة أو إعادة التشغيل. يغطي الدفتر المفتوح، ويُرفع الدفتر الذي تغادره قبل التبديل.
+- أسباب فشل الدخول بالفصحى (خطأ 10 = عدم تطابق SHA-1/الحزمة، لا يوجد حساب، خدمات Google Play، الإنترنت، الإلغاء)، وبعد فشل Google يظهر خيار مؤقت «تابِع بكلمة سر فقط» حتى لا يُحرم من بياناته.
+- التواصل مع المطوّر عبر تيليجرام فقط: @abnalyatim (الإعدادات ← «عن التطبيق»، وشاشة الاشتراك).

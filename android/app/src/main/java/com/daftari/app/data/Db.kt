@@ -208,8 +208,8 @@ abstract class DaftariDb : RoomDatabase() {
             }
         }
 
-        fun create(context: Context, inMemory: Boolean = false): DaftariDb =
+        fun create(context: Context, inMemory: Boolean = false, name: String = "daftari.db"): DaftariDb =
             (if (inMemory) Room.inMemoryDatabaseBuilder(context, DaftariDb::class.java).allowMainThreadQueries()
-            else Room.databaseBuilder(context, DaftariDb::class.java, "daftari.db")).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+            else Room.databaseBuilder(context, DaftariDb::class.java, name)).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
     }
 }

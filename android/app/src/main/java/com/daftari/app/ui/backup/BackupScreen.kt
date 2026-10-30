@@ -51,13 +51,13 @@ import java.util.Date
 import java.util.Locale
 
 data class BackupUi(
-    val account: String, val auto: Boolean, val lastDrive: Long, val lastLocal: Long, val files: List<DriveFile>, val error: String?, val setupMissing: Boolean,
+    val account: String, val backupMinuteOfDay: Int, val lastDrive: Long, val lastLocal: Long, val files: List<DriveFile>, val error: String?, val setupMissing: Boolean,
     val clientIdSet: Boolean, val encrypted: Boolean,
 )
 
 data class BackupActions(
-    val onBack: () -> Unit = {}, val onConnect: () -> Unit = {}, val onBackupNow: () -> Unit = {}, val onAuto: (Boolean) -> Unit = {}, val onRefresh: () -> Unit = {},
-    val onRestore: (DriveFile) -> Unit = {}, val onSaveToDrive: () -> Unit = {}, val onImportFile: () -> Unit = {}, val onPassword: () -> Unit = {}, val onUnlink: () -> Unit = {},
+    val onBack: () -> Unit = {}, val onConnect: () -> Unit = {}, val onBackupNow: () -> Unit = {}, val onTime: () -> Unit = {}, val onRefresh: () -> Unit = {},
+    val onRestore: (DriveFile) -> Unit = {}, val onSaveToDrive: () -> Unit = {}, val onImportFile: () -> Unit = {}, val onPassword: () -> Unit = {},
 )
 
 private fun t(ms: Long) = if (ms <= 0) "لم يتم بعد" else SimpleDateFormat("yyyy/MM/dd · HH:mm", Locale.US).format(Date(ms))
@@ -79,7 +79,8 @@ fun BackupScreen(u: BackupUi, a: BackupActions) {
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             T("Google Drive", 15.sp, FontWeight.Bold)
-                            T(if (u.account.isNotBlank()) u.account else "غير مربوط", 12.sp, color = if (u.account.isNotBlank()) c.ok else c.muted, maxLines = 1)
+                            if (u.account.isNotBlank()) T("مسجّل الدخول باسم", 11.sp, color = c.muted, maxLines = 1)
+                            T(if (u.account.isNotBlank()) "\u2066${u.account}\u2069" else "غير مربوط", 12.5.sp, if (u.account.isNotBlank()) FontWeight.SemiBold else FontWeight.Normal, if (u.account.isNotBlank()) c.ok else c.muted, maxLines = 1)
                         }
                         if (u.account.isNotBlank()) Pill("مربوط", c.ok, Color.Transparent) else Pill("مجلد مخفي", c.muted, Color.Transparent)
                     }
@@ -95,12 +96,15 @@ fun BackupScreen(u: BackupUi, a: BackupActions) {
                     if (u.account.isBlank()) PrimaryButton("ربط حساب Google", Modifier.fillMaxWidth(), R.drawable.ic_si_google, onClick = a.onConnect)
                     else {
                         PrimaryButton("نسخ احتياطي الآن", Modifier.fillMaxWidth(), R.drawable.ic_cloud_upload, onClick = a.onBackupNow)
-                        Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, c.outline2, RoundedCornerShape(14.dp)).clickable(onClick = a.onTime).padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            DfIcon(R.drawable.ic_cloud, 18.dp, blue); Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
-                                T("نسخ تلقائي يومي", 13.5.sp, FontWeight.Bold)
-                                T("عند توفر الإنترنت · آخر نسخة: ${t(u.lastDrive)}", 11.5.sp, color = c.muted, maxLines = 1)
+                                T("النسخ التلقائي يومياً الساعة ${com.daftari.app.core.BackupClock.label(u.backupMinuteOfDay)}", 13.sp, FontWeight.Bold)
+                                T("لا يمكن إيقافه، ويمكن تغيير وقته فقط", 11.5.sp, color = c.muted)
+                                T("آخر نسخة ناجحة: ${t(u.lastDrive)}", 11.5.sp, color = c.muted)
                             }
-                            Toggle(u.auto, a.onAuto)
+                            T("تغيير الوقت", 12.sp, FontWeight.Bold, blue)
                         }
                     }
                 }
@@ -142,7 +146,6 @@ fun BackupScreen(u: BackupUi, a: BackupActions) {
             }
             T("كل نسخة تحتوي على: الزبائن، والديون، والسدادات، والتذكيرات، و«السجل» كاملاً بختمه. يمكنك استرجاعها حتى بعد حذف التطبيق أو تغيير الجوال.", 11.5.sp, color = c.muted2,
                 modifier = Modifier.padding(top = 14.dp), lineHeight = 18.sp)
-            if (u.account.isNotBlank()) T("فك ربط Google", 12.sp, FontWeight.SemiBold, c.muted, modifier = Modifier.padding(top = 14.dp).clickable(onClick = a.onUnlink))
         }
     }
 }

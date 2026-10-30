@@ -12,9 +12,9 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /** Reminders set from «مدين»: kept on the phone (and in backups), fired by WorkManager even after a restart. */
-class ReminderStore(context: Context) {
+class ReminderStore(context: Context, name: String = "daftari_reminders") {
     private val ctx = context.applicationContext
-    private val p = ctx.getSharedPreferences("daftari_reminders", Context.MODE_PRIVATE)
+    private val p = ctx.getSharedPreferences(name, Context.MODE_PRIVATE)
 
     fun all(): List<Reminder> = runCatching {
         val a = JSONArray(p.getString("list", "[]")); (0 until a.length()).map { i -> a.getJSONObject(i).let { Reminder(it.getLong("id"), it.optLong("partyId"), it.getLong("at"), it.optString("text"), it.optBoolean("done")) } }

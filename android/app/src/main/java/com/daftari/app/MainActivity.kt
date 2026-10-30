@@ -82,15 +82,16 @@ import com.daftari.app.security.Biometric
 import com.daftari.app.share.Share
 import com.daftari.app.ui.auth.GoogleAuth
 import com.daftari.app.ui.auth.GoogleResult
-import com.daftari.app.ui.auth.LoginScreen
-import com.daftari.app.ui.auth.OtpScreen
+import com.daftari.app.ui.auth.EntryMode
+import com.daftari.app.ui.auth.EntryScreen
+import com.daftari.app.ui.auth.SetPasswordScreen
+import com.daftari.app.core.Gate
 import com.daftari.app.ui.auth.SetupScreen
 import com.daftari.app.ui.chat.ChatScreen
 import com.daftari.app.ui.common.DaftariClip
 import com.daftari.app.ui.common.DfIcon
 import com.daftari.app.ui.common.T
 import com.daftari.app.ui.extra.ImportScreen
-import com.daftari.app.ui.extra.LockScreen
 import com.daftari.app.ui.extra.PasswordPrompt
 import com.daftari.app.ui.extra.PasswordSetup
 import com.daftari.app.ui.extra.PaywallScreen
@@ -134,7 +135,6 @@ sealed interface Route {
 /** A pending double-lock (fingerprint + PIN) and what to do after it. */
 private data class GateReq(val title: String, val subtitle: String, val onOk: () -> Unit)
 
-private enum class Onboard { LOGIN, OTP, SETUP }
 
 class MainActivity : FragmentActivity() {
     companion object { const val EXTRA_PARTY = "party_id" }
@@ -177,87 +177,102 @@ private fun Root(vm: AppViewModel, s: AppSettings?, act: FragmentActivity, openP
     var splashDone by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { vm.refreshServerInfo(); delay(1750); /* one full cycle of the v2 clip (1.67 s) */ splashDone = true }
     val unlocked by vm.unlocked.collectAsState()
+    val resetting by vm.resettingPassword.collectAsState()
+    val restart = { com.daftari.app.core.AppRestart.restart(act) }
     AnimatedContent(
-        targetState = when {
-            s == null || !splashDone -> 0
-            !s.onboarded -> 1
-            s.lockEnabled && !unlocked -> 2
-            else -> 3
-        },
+        targetState = if (s == null || !splashDone) -1 else com.daftari.app.core.AuthGate.of(s, unlocked, resetting).ordinal,
         transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "root",
     ) { stage ->
         when (stage) {
-            0 -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { DaftariClip(280.dp, loop = false) }
-            1 -> OnboardingFlow(vm, act)
-            2 -> LockScreen(
-                hasBiometric = Biometric.available(act), hasPassword = s!!.hasPassword,
-                onBiometric = { Biometric.prompt(act, "فتح دفتري", "استخدم البصمة") { ok -> if (ok) vm.unlocked.value = true } },
-                onPassword = { pw -> vm.tryPassword(pw).also { if (it == null) vm.unlocked.value = true } },
-            )
+            -1 -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { DaftariClip(280.dp, loop = false) }
+            Gate.FIRST_RUN.ordinal, Gate.SETUP.ordinal -> OnboardingFlow(vm, s!!, act, stage == Gate.SETUP.ordinal)
+            Gate.SET_PASSWORD.ordinal -> Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                SetPasswordScreen(s!!.googleEmail, Biometric.available(act), resetting,
+                    onEnableBiometric = { done -> Biometric.prompt(act, "تفعيل البصمة", "ضع إصبعك للتأكيد") { ok -> done(ok) } },
+                    onSave = { pw, bio -> vm.setAppPassword(pw, bio, restart) })
+                BackupOverlays(vm)
+            }
+            Gate.RETURNING.ordinal -> ReturningScreen(vm, s!!, act, restart)
             else -> MainShell(vm, s!!, act, openParty)
         }
     }
 }
 
+/** Every launch after the first: the same entry design, the app password + fingerprint, and the role cards (محل / سوق, same account). */
 @Composable
-private fun OnboardingFlow(vm: AppViewModel, act: FragmentActivity) {
-    val ctx = LocalContext.current
+private fun ReturningScreen(vm: AppViewModel, s: AppSettings, act: FragmentActivity, restart: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var step by remember { mutableStateOf(Onboard.LOGIN) }
-    var role by remember { mutableStateOf(Role.SHOP_OWNER) }
-    var defaultOwner by remember { mutableStateOf("") }
-    val info by vm.serverInfo.collectAsState()
-    val phone by vm.otpPhone.collectAsState()
-    val channel by vm.otpChannel.collectAsState()
-    val devCode by vm.otpDevCode.collectAsState()
+    var role by remember { mutableStateOf(s.role) }
+    val canBio = s.biometricOn && Biometric.available(act)
+    val note = when {
+        role == s.role -> null
+        vm.workspaceExists(role) -> "سيُفتح دفتر «${role.labelAr}» بعد الدخول"
+        else -> "سيُنشأ دفتر جديد منفصل لـ«${role.labelAr}» بالحساب نفسه بعد الدخول"
+    }
+    Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+        EntryScreen(EntryMode.RETURNING, role, { role = it }, roleNote = note, account = s.googleEmail,
+            hasBiometric = canBio, autoBiometric = canBio,
+            onBiometric = { Biometric.prompt(act, "فتح دفتري", "استخدم البصمة") { ok -> if (ok) vm.unlockAs(role, restart) } },
+            onPassword = { pw -> vm.tryPassword(pw).also { if (it == null) vm.unlockAs(role, restart) } },
+            onForgot = {
+                if (s.googleEmail.isBlank()) vm.say("لاستعادة كلمة السر يلزم ربط حساب Google، ولم يُربط بعد على هذا الجوال.")
+                else scope.launch {
+                    when (val r = GoogleAuth.signIn(act, com.daftari.app.backup.GoogleDrive.webClientId, "التحقق بحساب Google")) {
+                        is GoogleResult.Ok -> vm.forgotVerified(r.email)
+                        is GoogleResult.Failed -> vm.say(r.message)
+                        GoogleResult.Cancelled -> Unit
+                    }
+                }
+            })
+        BackupOverlays(vm)
+    }
+}
+
+@Composable
+private fun OnboardingFlow(vm: AppViewModel, s: AppSettings, act: FragmentActivity, setup: Boolean) {
+    val scope = rememberCoroutineScope()
+    var role by remember { mutableStateOf(if (s.onboarded) s.role else Role.SHOP_OWNER) }
+    var googleError by remember { mutableStateOf<String?>(null) }
+    var googleFailed by remember { mutableStateOf(false) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.openImport(uri) }
     val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.openBackup(uri) }
     val importState by vm.importState.collectAsState()
-    BackHandler(step != Onboard.LOGIN) { step = if (step == Onboard.SETUP) Onboard.LOGIN else Onboard.LOGIN }
     Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         val imp = importState
         if (imp != null) {
             MigratePreview(imp.tables, imp.index, imp.plan, imp.remembered, imp.done, onTable = { vm.importSelectTable(it) }, onField = { i, f -> vm.importSetField(i, f) },
                 onLayout = { vm.importSetLayout(it) }, onConfirm = { vm.importConfirm() }, onBack = { vm.importState.value = null },
-                onFinish = { vm.importState.value = null; vm.finishSetup(role, "", defaultOwner, 0, com.daftari.app.core.Currency.YER, false); vm.startTrialIfNeeded() })
+                onFinish = { vm.importState.value = null; if (setup) { vm.finishSetup(s.role, "", s.ownerName.ifBlank { s.googleName }, 0, com.daftari.app.core.Currency.YER, false); vm.startTrialIfNeeded() } })
             BackupOverlays(vm)
             return@Box
         }
         Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
-        when (step) {
-            Onboard.LOGIN -> LoginScreen(
-                role = role, onRole = { role = it }, serverReady = info != null,
-                googleReady = (info?.googleClientId?.isNotBlank() == true) || BuildConfig.GOOGLE_CLIENT_ID.isNotBlank(),
-                onSendOtp = { p, ch -> vm.requestOtp(p, ch) { step = Onboard.OTP } },
-                onGoogle = {
-                    scope.launch {
-                        val id = info?.googleClientId?.takeIf { it.isNotBlank() } ?: BuildConfig.GOOGLE_CLIENT_ID
-                        when (val r = GoogleAuth.signIn(act, id)) {
-                            is GoogleResult.Ok -> vm.googleSignedIn(r.idToken, r.email, r.name, role) { defaultOwner = r.name; step = Onboard.SETUP }
-                            is GoogleResult.Failed -> vm.say(r.message)
-                            GoogleResult.Cancelled -> Unit
-                        }
+        if (!setup) EntryScreen(EntryMode.FIRST_RUN, role, { role = it },
+            googleReady = com.daftari.app.backup.GoogleDrive.webClientId.isNotBlank(),
+            googleError = googleError,
+            onWithoutGoogle = if (googleFailed) ({ vm.continueWithoutGoogle(role) }) else null,
+            onGoogle = {
+                googleError = null
+                scope.launch {
+                    when (val r = GoogleAuth.signIn(act, com.daftari.app.backup.GoogleDrive.webClientId)) {
+                        is GoogleResult.Ok -> vm.googleSignedIn(r.email, r.name, role)
+                        is GoogleResult.Failed -> { googleError = r.message; googleFailed = true }
+                        GoogleResult.Cancelled -> Unit
                     }
-                },
-                onOffline = { vm.continueOffline(role) { step = Onboard.SETUP } },
-            )
-            Onboard.OTP -> OtpScreen(phone, channel, devCode, onBack = { step = Onboard.LOGIN },
-                onVerify = { code, email -> vm.verifyOtp(code, role, email) { step = Onboard.SETUP } },
-                onResend = { ch -> vm.requestOtp(phone, ch) {} })
-            Onboard.SETUP -> SetupScreen(role, { role = it }, defaultOwner,
-                onDone = { business, owner, shops, currency, demo -> vm.finishSetup(role, business, owner, shops, currency, demo); vm.startTrialIfNeeded() },
-                onImport = { importLauncher.launch(arrayOf("*/*")) })
+                }
+            })
+        else SetupScreen(s.role, {}, s.ownerName.ifBlank { s.googleName }, showRole = false,
+            onDone = { business, owner, shops, currency, demo -> vm.finishSetup(s.role, business, owner, shops, currency, demo); vm.startTrialIfNeeded() },
+            onImport = { importLauncher.launch(arrayOf("*/*")) })
         }
-        }
-        if (step != Onboard.OTP) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             com.daftari.app.ui.common.GhostButton("استرجاع نسخة", Modifier.weight(1f), R.drawable.ic_arrow_down_left, height = 44.dp) { restoreLauncher.launch(arrayOf("*/*")) }
             com.daftari.app.ui.common.GhostButton("انتقل من تطبيق آخر", Modifier.weight(1f), R.drawable.ic_file_spreadsheet, height = 44.dp) { importLauncher.launch(arrayOf("*/*")) }
         }
         }
         BackupOverlays(vm)
     }
-    @Suppress("UNUSED_EXPRESSION") ctx
 }
 
 private data class Tab(val label: String, val icon: Int)
@@ -374,6 +389,10 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
         }
     }
     val driveAuthLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res -> vm.driveAuthResult(res.data) }
+    // 1.1.4: signed in with Google but Drive not linked yet → ask for drive.appdata on the same account once (the daily copy is mandatory)
+    LaunchedEffect(s.googleEmail, s.driveAccount) {
+        if (com.daftari.app.backup.GoogleDrive.webClientId.isNotBlank()) vm.driveAutoConnect { pi -> driveAuthLauncher.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build()) }
+    }
     val contactLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri: Uri? ->
         if (uri != null) scope.launch {
             picked = withContext(Dispatchers.IO) { readContact(ctx, uri) }
@@ -429,12 +448,22 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                             onTheme = { m -> vm.updateSettings { it.copy(theme = m) } },
                             onCurrency = { cur -> vm.updateSettings { it.copy(currency = cur) } },
                             onEditBusiness = { vm.updateSettings { it.copy(onboarded = false) } },
-                            onLock = { on -> if (on && !s.hasPassword && !Biometric.available(act)) push(Route.Password) else vm.updateSettings { it.copy(lockEnabled = on) } },
+                            onLock = { on ->
+                                if (!on) vm.updateSettings { it.copy(biometricOn = false) }
+                                else if (!Biometric.available(act)) vm.say("لا توجد بصمة مسجّلة على هذا الجوال")
+                                else Biometric.prompt(act, "تفعيل البصمة", "ضع إصبعك للتأكيد") { ok -> if (ok) vm.updateSettings { it.copy(biometricOn = true) } }
+                            },
+                            onSwitchRole = { target ->
+                                val fresh = !vm.workspaceExists(target)
+                                confirm(if (fresh) "إنشاء دفتر «${target.labelAr}» منفصل بالحساب نفسه" else "التبديل إلى دفتر «${target.labelAr}»") {
+                                    vm.switchWorkspace(target) { com.daftari.app.core.AppRestart.restart(act) }
+                                }
+                            },
                             onPassword = { push(Route.Password) },
                             onBackup = { if (vm.gate(Plan.Feature.BACKUP, onPaywall = paywall)) vm.backupNow() },
                             onImport = { push(Route.Import) },
                             onAccount = { },
-                            onSignOut = { vm.signOut() },
+                            onSignOut = { confirm("تسجيل الخروج من Google") { vm.googleSignOut() } },
                             onWipe = { confirm("مسح كل البيانات") { vm.wipeAll {} } },
                             onPro = paywall,
                             onAlerts = { on -> vm.updateSettings { it.copy(alertsEnabled = on) } },
@@ -446,6 +475,7 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                             onBackupScreen = { push(Route.Backup) },
                             onMigrate = { vm.importState.value = null; push(Route.Migrate) },
                             onRates = { vm.ratesStatus.value = null; push(Route.Rates) },
+                            onDeveloper = { Share.telegramDev(ctx) },
                         ))
                     }
                 }
@@ -496,7 +526,7 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                     }
                     Route.Paywall -> PaywallScreen(Plan.statusText(s), s.currency, onBack = { pop() },
                         onActivate = { code -> vm.activatePro(code) { pop() } },
-                        onContact = { Share.whatsappText(ctx, AppInfo_SUPPORT, "السلام عليكم، أريد الاشتراك في دفتري برو. رقمي: ${s.phone}") })
+                        onContact = { Share.telegramDev(ctx) })
                     Route.Password -> PasswordSetup(onBack = { pop() }) { pw -> vm.setPassword(pw); vm.say("تم حفظ كلمة السر ✅"); pop() }
                     Route.Reports -> ReportsMenu(onBack = { pop() }) { k -> push(Route.ReportOf(k.name)) }
                     Route.Log -> {
@@ -521,12 +551,27 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                         val files by vm.driveFiles.collectAsState(); val err by vm.driveError.collectAsState(); val setup by vm.driveSetupMissing.collectAsState()
                         LaunchedEffect(s.driveAccount) { if (s.driveAccount.isNotBlank()) vm.driveList() }
                         var pwDialog by remember { mutableStateOf(false) }
-                        BackupScreen(BackupUi(s.driveAccount, s.driveAuto, s.lastDriveBackupAt, s.lastBackupAt, files, err, setup, com.daftari.app.backup.GoogleDrive.webClientId.isNotBlank(), s.backupEncrypted),
+                        BackupScreen(BackupUi(s.driveAccount, s.backupMinuteOfDay, s.lastDriveBackupAt, s.lastBackupAt, files, err, setup, com.daftari.app.backup.GoogleDrive.webClientId.isNotBlank(), s.backupEncrypted),
                             BackupActions(onBack = { pop() },
-                                onConnect = { vm.driveConnect { pi -> driveAuthLauncher.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build()) } },
-                                onBackupNow = { vm.driveBackupNow() }, onAuto = { vm.driveAuto(it) }, onRefresh = { vm.driveList() },
+                                onConnect = {
+                                    scope.launch {
+                                        // 1) Google sign-in with the WEB client id picks the account (and gives its email); 2) Drive asks for drive.appdata on THAT account
+                                        val webId = com.daftari.app.backup.GoogleDrive.webClientId
+                                        var account: String? = null
+                                        if (webId.isNotBlank()) when (val r = GoogleAuth.signIn(act, webId)) {
+                                            is GoogleResult.Ok -> account = r.email
+                                            GoogleResult.Cancelled -> return@launch
+                                            is GoogleResult.Failed -> if (r.kind == com.daftari.app.ui.auth.GoogleErrors.Kind.DEVELOPER || r.kind == com.daftari.app.ui.auth.GoogleErrors.Kind.NETWORK || r.kind == com.daftari.app.ui.auth.GoogleErrors.Kind.PLAY_SERVICES) {
+                                                vm.driveFailed(r.message, r.kind == com.daftari.app.ui.auth.GoogleErrors.Kind.DEVELOPER); return@launch
+                                            } // otherwise Drive's own chooser below can still add/pick an account
+                                        }
+                                        vm.driveConnect(account ?: s.email.takeIf { "@" in it }) { pi -> driveAuthLauncher.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build()) }
+                                    }
+                                },
+                                onBackupNow = { vm.driveBackupNow() }, onRefresh = { vm.driveList() },
+                                onTime = { android.app.TimePickerDialog(act, { _, h, m -> vm.setBackupTime(h * 60 + m) }, s.backupHour, s.backupMinute, false).show() },
                                 onRestore = { f -> vm.driveRestore(f) }, onSaveToDrive = { saveBackupLauncher.launch(vm.backupFileName()) },
-                                onImportFile = { restoreLauncher.launch(arrayOf("*/*")) }, onPassword = { pwDialog = true }, onUnlink = { vm.driveUnlink() }))
+                                onImportFile = { restoreLauncher.launch(arrayOf("*/*")) }, onPassword = { pwDialog = true }))
                         if (pwDialog) BackupPasswordDialog(if (s.backupEncrypted) "تغيير كلمة سر النسخ" else "كلمة سر النسخ", "تحمي ملف النسخة إذا وصل إلى أحد. لا تُحفظ في أي مكان — إذا نسيتها فلن تُفتح النسخ المشفّرة.", true,
                             onDone = { vm.setBackupPassword(it); pwDialog = false }, onClear = if (s.backupEncrypted) ({ vm.setBackupPassword(null); pwDialog = false }) else null, onDismiss = { pwDialog = false })
                     }
@@ -621,7 +666,6 @@ private fun BackupOverlays(vm: AppViewModel) {
     }
 }
 
-private const val AppInfo_SUPPORT = com.daftari.app.core.AppInfo.SUPPORT_WHATSAPP
 
 private fun readContact(ctx: android.content.Context, uri: Uri): Pair<String, String>? {
     val cr = ctx.contentResolver

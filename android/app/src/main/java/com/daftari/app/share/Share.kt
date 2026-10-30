@@ -26,6 +26,9 @@ object Share {
     }
 
     /** Text to a number on WhatsApp (wa.me works with WhatsApp and WhatsApp Business). */
+    /** «تواصل مع المطوّر»: Telegram @abnalyatim (opens the Telegram app, or the browser when it is not installed). */
+    fun telegramDev(ctx: Context) = start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse(com.daftari.app.core.AppInfo.DEV_TELEGRAM_URL)))
+
     fun whatsappText(ctx: Context, phone: String, body: String) {
         val norm = Phone.normalize(phone)
         if (norm == null) return toast(ctx, "رقم الجوال غير صحيح")

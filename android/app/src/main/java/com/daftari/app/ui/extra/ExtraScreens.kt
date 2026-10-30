@@ -243,7 +243,7 @@ fun PaywallScreen(statusText: String, currency: Currency, onBack: () -> Unit, on
             Spacer(Modifier.height(8.dp))
             T("الدفع: حوّل المبلغ ثم أرسل الإيصال، وسيصلك كود التفعيل. (الدفع من داخل المتجر قيد التجهيز)", 12.5.sp, color = c.muted, lineHeight = 20.sp)
             Spacer(Modifier.height(10.dp))
-            GhostButton("طلب الاشتراك عبر واتساب", Modifier.fillMaxWidth(), R.drawable.ic_si_whatsapp, onClick = onContact)
+            GhostButton("طلب الاشتراك عبر تيليجرام \u2066${com.daftari.app.core.AppInfo.DEV_TELEGRAM}\u2069", Modifier.fillMaxWidth(), R.drawable.ic_send, iconTint = androidx.compose.ui.graphics.Color(0xFF229ED9), onClick = onContact)
             Spacer(Modifier.height(14.dp))
             Field("كود التفعيل", code, { code = it.uppercase().filter { ch -> ch.isLetterOrDigit() || ch == '-' }.take(24) }, ltr = true, icon = R.drawable.ic_badge_check)
             Spacer(Modifier.height(10.dp))

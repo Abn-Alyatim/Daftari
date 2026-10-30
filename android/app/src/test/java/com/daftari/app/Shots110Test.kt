@@ -116,11 +116,11 @@ class Shots110Test {
             DriveFile("1", "Daftari-2026-10-29-0905.daftari", 48_213, 1_793_257_500_000), DriveFile("2", "Daftari-2026-10-28-2100.daftari", 47_920, 1_793_214_000_000),
             DriveFile("3", "Daftari-2026-10-27-2100.daftari", 46_002, 1_793_127_600_000),
         )
-        shot("01_drive") { BackupScreen(BackupUi("madyan.store@gmail.com", true, 1_793_257_500_000, 0, files, null, false, true, true), BackupActions()) }
+        shot("01_drive") { BackupScreen(BackupUi("madyan.store@gmail.com", 120, 1_793_257_500_000, 0, files, null, false, true, true), BackupActions()) }
     }
 
     @Test fun a02_drive_setup_missing() {
-        shot("02_drive_not_set_up") { BackupScreen(BackupUi("", false, 0, 0, emptyList(), null, true, false, false), BackupActions()) }
+        shot("02_drive_not_set_up") { BackupScreen(BackupUi("", 120, 0, 0, emptyList(), null, true, false, false), BackupActions()) }
     }
 
     @Test fun a03_assistant_confirm() {
@@ -194,7 +194,7 @@ class Shots110Test {
     @Test fun a14_backup_preview() {
         shot("14_restore_backup_preview") {
             Box(Modifier.fillMaxSize()) {
-                BackupScreen(BackupUi("", false, 0, 0, emptyList(), null, false, false, true), BackupActions())
+                BackupScreen(BackupUi("", 120, 0, 0, emptyList(), null, false, false, true), BackupActions())
                 BackupPreviewSheet("Daftari-2026-10-29-0905.daftari", 34, 212, 167, 431, 3, "29 أكتوبر 2026", emptyList(), true, {}, {})
             }
         }
