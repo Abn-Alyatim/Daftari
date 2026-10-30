@@ -18,12 +18,13 @@ val signingProps = Properties().apply {
 fun signingValue(key: String, env: String): String? = signingProps.getProperty(key) ?: System.getenv(env)
 val releaseStoreFile = signingValue("storeFile", "DF_STORE_FILE")
 
+val localProps = Properties().apply { rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
 // The Daftari server (accounts, OTP, chat, backup). -PdaftariServerUrl=https://... or gradle.properties.
-val serverUrl: String = (findProperty("daftariServerUrl") as String?)?.trim().orEmpty()
+// 1.1.5: defaults to https://daftari.hostless.app (the hostless app Madyan creates); the app degrades gracefully while it is not deployed.
+val serverUrl: String = ((findProperty("daftariServerUrl") as String?) ?: System.getenv("DF_SERVER_URL") ?: localProps.getProperty("DF_SERVER_URL"))?.trim()?.ifBlank { null } ?: "https://daftari.hostless.app"
 // Optional Google web client id fallback; normally the server's /api/v1/info gives it.
 // Google OAuth web client id (optional; Drive backup only needs the Android client registered in his Cloud project).
 // -PdaftariGoogleClientId=… or `daftari.googleClientId=…` in local.properties (never committed).
-val localProps = Properties().apply { rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
 // One command to rebuild with his id: DF_GOOGLE_WEB_CLIENT_ID=…apps.googleusercontent.com in local.properties, the environment or -P.
 val googleClientId: String = ((findProperty("DF_GOOGLE_WEB_CLIENT_ID") as String?) ?: System.getenv("DF_GOOGLE_WEB_CLIENT_ID")
     ?: localProps.getProperty("DF_GOOGLE_WEB_CLIENT_ID") ?: (findProperty("daftariGoogleClientId") as String?) ?: localProps.getProperty("daftari.googleClientId"))?.trim().orEmpty()
@@ -36,8 +37,8 @@ android {
         applicationId = "com.daftari.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.1.4"
+        versionCode = 8
+        versionName = "1.1.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         buildConfigField("String", "SERVER_URL", "\"" + serverUrl.replace("\"", "") + "\"")

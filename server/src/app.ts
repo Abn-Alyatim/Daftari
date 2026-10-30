@@ -6,6 +6,7 @@ import type { Store, User } from "./store.js";
 import { OtpError, type Fetch, type OtpRouter } from "./otp.js";
 import { Ai, AiError, NOT_READY, chatSystemPrompt, importSystemPrompt, parseJsonLoose } from "./ai.js";
 import { hashCode, newOtp, normalizePhone, signToken, verifyToken } from "./auth.js";
+import { isAdmin, planOf, registerSubs } from "./subs.js";
 
 export interface Deps { cfg: Config; store: Store; otp: OtpRouter; ai: Ai; fetch?: Fetch; now?: () => number }
 
@@ -23,7 +24,7 @@ export function buildApp(d: Deps): FastifyInstance {
     const id = h.startsWith("Bearer ") ? verifyToken(cfg.authSecret, h.slice(7)) : null;
     return id ? store.userById(id) : null;
   }
-  const auth = (u: User) => ({ token: signToken(cfg.authSecret, u.id), user: { id: u.id, phone: u.phone, email: u.email, name: u.name, role: u.role }, proUntil: u.proUntil });
+  const auth = (u: User) => ({ token: signToken(cfg.authSecret, u.id), user: { id: u.id, phone: u.phone, email: u.email, name: u.name, role: u.role }, proUntil: u.proUntil, plan: planOf(u, now()) });
 
   app.get("/health", async () => ({ ok: true, name: "daftari", version: cfg.version }));
   app.get("/api/v1/info", async () => ({
@@ -74,11 +75,11 @@ export function buildApp(d: Deps): FastifyInstance {
   app.post("/api/v1/auth/google", async (req, reply) => {
     const b = z.object({ idToken: z.string().min(10), role: z.string().default("") }).safeParse(req.body);
     if (!b.success) return reply.code(400).send(err("bad_request", "طلب غير صالح"));
-    if (!cfg.googleClientId) return reply.code(503).send(err("not_configured", "الدخول بـ Google قيد التجهيز"));
+    if (!cfg.googleClientIds.length) return reply.code(503).send(err("not_configured", "الدخول بـ Google قيد التجهيز"));
     const r = await f("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(b.data.idToken));
     if (!r.ok) return reply.code(401).send(err("bad_token", "تعذّر التحقق من حساب Google"));
     const t: any = await r.json();
-    if (t.aud !== cfg.googleClientId || !t.email) return reply.code(401).send(err("bad_audience", "حساب Google غير مطابق"));
+    if (!cfg.googleClientIds.includes(String(t.aud)) || !t.email || (t.email_verified !== undefined && String(t.email_verified) !== "true")) return reply.code(401).send(err("bad_audience", "حساب Google غير مطابق"));
     let u = await store.userByEmail(t.email);
     if (!u) u = { id: randomUUID(), phone: "", email: t.email, name: t.name ?? "", role: b.data.role, proUntil: 0, createdAt: now() };
     await store.saveUser(u);
@@ -161,7 +162,7 @@ export function buildApp(d: Deps): FastifyInstance {
 
   /** Madyan creates activation codes after a transfer arrives: POST with header x-admin-token. */
   app.post("/api/v1/admin/codes", async (req, reply) => {
-    if (!cfg.adminToken || req.headers["x-admin-token"] !== cfg.adminToken) return reply.code(403).send(err("forbidden", "ممنوع"));
+    if (!isAdmin(cfg, req)) return reply.code(403).send(err("forbidden", "ممنوع"));
     const b = z.object({ months: z.number().int().min(1).max(36).default(1), count: z.number().int().min(1).max(50).default(1) }).safeParse(req.body ?? {});
     if (!b.success) return reply.code(400).send(err("bad_request", "طلب غير صالح"));
     const codes: string[] = [];
@@ -172,6 +173,8 @@ export function buildApp(d: Deps): FastifyInstance {
     }
     return { codes, months: b.data.months };
   });
+
+  registerSubs(app, { cfg, store, now, userOf });
 
   app.setErrorHandler((e, _req, reply) => { reply.code(500).send(err("server", "خطأ في الخادم")); void e; });
   return app;

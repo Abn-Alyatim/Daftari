@@ -225,7 +225,7 @@ fun Toggle(on: Boolean, onChange: (Boolean) -> Unit) {
 }
 
 @Composable
-fun EmptyState(@DrawableRes icon: Int, title: String, body: String, action: String? = null, onAction: (() -> Unit)? = null) {
+fun EmptyState(@DrawableRes icon: Int, title: String, body: String, action: String? = null, onAction: (() -> Unit)? = null, @DrawableRes actionIcon: Int = R.drawable.ic_plus) {
     Column(Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(64.dp).clip(RoundedCornerShape(20.dp)).background(Df.c.primarySoft), contentAlignment = Alignment.Center) {
             DfIcon(icon, 28.dp, if (Df.c.isDark) Df.c.primaryLight else Df.c.primary)
@@ -236,7 +236,7 @@ fun EmptyState(@DrawableRes icon: Int, title: String, body: String, action: Stri
         T(body, 13.sp, color = Df.c.muted, align = TextAlign.Center, lineHeight = 21.sp)
         if (action != null && onAction != null) {
             Spacer(Modifier.height(16.dp))
-            PrimaryButton(action, icon = R.drawable.ic_plus, onClick = onAction)
+            PrimaryButton(action, icon = actionIcon, onClick = onAction)
         }
     }
 }

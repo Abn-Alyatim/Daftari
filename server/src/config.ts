@@ -14,6 +14,8 @@ export interface Config {
   smsToken: string;
   smsFrom: string;
   googleClientId: string;
+  /** every accepted audience (GOOGLE_CLIENT_IDS, comma-separated, plus GOOGLE_CLIENT_ID) — a move to a new Cloud project keeps old installs working */
+  googleClientIds: string[];
   groqKey: string;
   groqModel: string;
   groqVisionModel: string;
@@ -42,7 +44,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     smsSid: env.SMS_ACCOUNT_SID ?? "",
     smsToken: env.SMS_AUTH_TOKEN ?? "",
     smsFrom: env.SMS_FROM ?? "",
-    googleClientId: env.GOOGLE_CLIENT_ID ?? "",
+    googleClientIds: [...new Set([...(env.GOOGLE_CLIENT_IDS ?? "").split(","), env.GOOGLE_CLIENT_ID ?? ""].map((x) => x.trim()).filter(Boolean))],
+    googleClientId: (env.GOOGLE_CLIENT_ID ?? "").trim() || (env.GOOGLE_CLIENT_IDS ?? "").split(",").map((x) => x.trim()).filter(Boolean)[0] || "",
     groqKey: env.GROQ_API_KEY ?? "",
     groqModel: env.GROQ_MODEL ?? "llama-3.3-70b-versatile",
     groqVisionModel: env.GROQ_VISION_MODEL ?? "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -50,6 +53,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     geminiModel: env.GEMINI_MODEL ?? "gemini-2.0-flash",
     chatDailyLimit: Number(env.CHAT_DAILY_LIMIT ?? 60),
     anonDailyLimit: Number(env.ANON_DAILY_LIMIT ?? 15),
-    version: "1.0.0",
+    version: "1.1.0",
   };
 }

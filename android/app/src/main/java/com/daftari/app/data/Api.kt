@@ -77,6 +77,26 @@ data class ServerInfo(
 @Serializable data class ActivateRequest(val code: String)
 @Serializable data class ActivateResult(val ok: Boolean = true, val proUntil: Long = 0, val plan: String = "pro")
 
+// ---- 1.1.5: subscriptions (transfer / wallet receipt → Madyan Panel), maintenance and broadcast from the server ----
+@Serializable data class Maintenance(val on: Boolean = false, val message: String = "", val mode: String = "banner", val until: Long? = null) {
+    val fullScreen: Boolean get() = on && mode == "full"
+}
+@Serializable data class Broadcast(val id: String = "", val title: String = "", val body: String = "", val at: Long = 0)
+@Serializable data class AppStatus(val maintenance: Maintenance = Maintenance(), val broadcast: Broadcast? = null, val serverTime: Long = 0)
+@Serializable data class SubPlan(val id: String, val name: String, val days: Int, val price: Double, val currency: String = "YER", val badge: String = "برو")
+@Serializable data class PayMethod(val id: String, val kind: String, val label: String, val number: String, val accountName: String = "", val other: Boolean = false)
+@Serializable data class SubConfig(val plans: List<SubPlan> = emptyList(), val methods: List<PayMethod> = emptyList(), val note: String = "")
+@Serializable data class ActivePlan(val name: String = "", val badge: String = "برو", val startsAt: Long = 0, val endsAt: Long = 0, val active: Boolean = false, val daysLeft: Int = 0)
+@Serializable data class SubRequestDto(
+    val id: String, val planId: String = "", val planName: String = "", val days: Int = 0, val price: Double = 0.0, val currency: String = "YER",
+    val methodId: String = "", val methodLabel: String = "", val methodKind: String = "", val payTo: String = "", val txnNo: String = "", val payerName: String = "",
+    val status: String = "pending", val rejectReason: String = "", val createdAt: Long = 0, val decidedAt: Long = 0, val startsAt: Long = 0, val endsAt: Long = 0, val seen: Boolean = false,
+)
+@Serializable data class SubStatus(val email: String = "", val plan: ActivePlan? = null, val pending: SubRequestDto? = null, val notice: SubRequestDto? = null, val last: SubRequestDto? = null)
+@Serializable data class SubSubmit(val planId: String, val methodId: String, val methodOther: String = "", val txnNo: String, val payerName: String, val receipt: String, val receiptMime: String = "image/jpeg")
+@Serializable data class SubSubmitResult(val request: SubRequestDto)
+@Serializable data class Ok(val ok: Boolean = true)
+
 class ApiException(val code: String, override val message: String, val status: Int = 0) : Exception(message)
 
 class DaftariApi(private val baseUrl: () -> String, private val token: () -> String = { "" }, client: OkHttpClient? = null) {
@@ -99,6 +119,11 @@ class DaftariApi(private val baseUrl: () -> String, private val token: () -> Str
     suspend fun backup(snapshot: JsonElement): JsonObject = post("/api/v1/backup", snapshot)
     suspend fun latestBackup(): JsonObject = get("/api/v1/backup/latest")
     suspend fun activate(code: String): ActivateResult = post("/api/v1/plan/activate", ActivateRequest(code))
+    suspend fun appStatus(): AppStatus = get("/api/v1/app/status")
+    suspend fun subConfig(): SubConfig = get("/api/v1/subscription/config")
+    suspend fun subStatus(): SubStatus = get("/api/v1/subscription/status")
+    suspend fun submitSub(s: SubSubmit): SubSubmitResult = post("/api/v1/subscription/requests", s)
+    suspend fun subSeen(id: String): Ok = post("/api/v1/subscription/requests/$id/seen", Ok())
 
     private suspend inline fun <reified T> get(path: String): T = call(Request.Builder().url(url(path)).get())
     private suspend inline fun <reified B, reified T> post(path: String, body: B): T =
@@ -122,9 +147,11 @@ class DaftariApi(private val baseUrl: () -> String, private val token: () -> Str
         resp.use { r ->
             val text = r.body?.string().orEmpty()
             if (!r.isSuccessful) {
-                val obj = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
-                val code = obj?.get("code")?.jsonPrimitive?.content ?: "http_${r.code}"
-                val msg = obj?.get("message")?.jsonPrimitive?.content ?: when (r.code) {
+                val top = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
+                // the server answers {"error":{"code","message"}}; older shapes put code/message at the top
+                val obj = runCatching { top?.get("error")?.jsonObject }.getOrNull() ?: top
+                val code = runCatching { obj?.get("code")?.jsonPrimitive?.content }.getOrNull() ?: "http_${r.code}"
+                val msg = runCatching { obj?.get("message")?.jsonPrimitive?.content }.getOrNull() ?: when (r.code) {
                     404 -> "الخادم غير منشور بعد"
                     429 -> "طلبات كثيرة، انتظر قليلاً ثم حاول مجدداً"
                     in 500..599 -> "في الخادم مشكلة مؤقتة"

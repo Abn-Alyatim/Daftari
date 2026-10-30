@@ -62,6 +62,12 @@ data class AppSettings(
     val biometricOn: Boolean = false,
     /** 1.1.4: the mandatory daily Drive copy runs at this local time (default 02:00); it cannot be switched off, only moved. */
     val backupMinuteOfDay: Int = 120,
+    /** 1.1.5: the subscription plan the server approved (name shown as the badge next to the account), its start. proUntil is its end. */
+    val planName: String = "",
+    val planBadge: String = "",
+    val planStart: Long = 0,
+    /** 1.1.5: the last panel broadcast already shown. */
+    val lastBroadcastId: String = "",
 ) {
     val hasAccount: Boolean get() = googleEmail.isNotBlank() || authLocal
     val backupHour: Int get() = (backupMinuteOfDay / 60).coerceIn(0, 23)
@@ -106,6 +112,10 @@ class SettingsStore(private val context: Context) {
         val authLocal = booleanPreferencesKey("auth_local")
         val bio = booleanPreferencesKey("biometric_on")
         val backupAt = intPreferencesKey("backup_minute_of_day")
+        val planName = stringPreferencesKey("plan_name")
+        val planBadge = stringPreferencesKey("plan_badge")
+        val planStart = longPreferencesKey("plan_start")
+        val lastBc = stringPreferencesKey("last_broadcast")
     }
 
     val settings: Flow<AppSettings> = context.store.data.map { it.toSettings() }
@@ -145,6 +155,10 @@ class SettingsStore(private val context: Context) {
         authLocal = this[K.authLocal] ?: false,
         biometricOn = this[K.bio] ?: false,
         backupMinuteOfDay = this[K.backupAt] ?: 120,
+        planName = this[K.planName] ?: "",
+        planBadge = this[K.planBadge] ?: "",
+        planStart = this[K.planStart] ?: 0L,
+        lastBroadcastId = this[K.lastBc] ?: "",
     )
 
     suspend fun update(block: (AppSettings) -> AppSettings) {
@@ -160,6 +174,7 @@ class SettingsStore(private val context: Context) {
             p[K.bookId] = n.bookId; p[K.rates] = n.ratesJson; p[K.curFilled] = n.currencyFilled
             p[K.gEmail] = n.googleEmail; p[K.gName] = n.googleName; p[K.authLocal] = n.authLocal; p[K.bio] = n.biometricOn
             p[K.backupAt] = n.backupMinuteOfDay.coerceIn(0, 24 * 60 - 1)
+            p[K.planName] = n.planName; p[K.planBadge] = n.planBadge; p[K.planStart] = n.planStart; p[K.lastBc] = n.lastBroadcastId
         }
     }
 }

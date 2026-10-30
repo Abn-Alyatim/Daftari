@@ -212,49 +212,6 @@ fun ImportScreen(
 
 // ------------------------------------------------------------------ paywall
 
-@Composable
-fun PaywallScreen(statusText: String, currency: Currency, onBack: () -> Unit, onActivate: (String) -> Unit, onContact: () -> Unit) {
-    val c = Df.c
-    var code by remember { mutableStateOf("") }
-    var pick by remember { mutableStateOf(1) }
-    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())) {
-        TopBar("دفتري برو", centered = true, start = { IconBox(R.drawable.ic_arrow_right, onBack) })
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            T(statusText, 13.sp, FontWeight.SemiBold, if (c.isDark) c.primaryLight else c.primary)
-            Spacer(Modifier.height(10.dp))
-            DfCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Plan.Feature.entries.forEach { f ->
-                        Row(verticalAlignment = Alignment.CenterVertically) { DfIcon(R.drawable.ic_check, 16.dp, c.ok); Spacer(Modifier.width(8.dp)); T(f.labelAr, 13.5.sp, FontWeight.Medium) }
-                    }
-                }
-            }
-            SectionTitle("اختر المدة")
-            Plan.prices.forEachIndexed { i, p ->
-                val on = i == pick
-                DfCard(Modifier.fillMaxWidth().padding(bottom = 8.dp), border = if (on) c.primary else c.outline, onClick = { pick = i }) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        T(p.labelAr, 15.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
-                        if (i == 2) { Pill("الأوفر", c.ok, c.okSoft); Spacer(Modifier.width(8.dp)) }
-                        T(Plan.priceText(p, currency), 16.sp, FontWeight.ExtraBold)
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            T("الدفع: حوّل المبلغ ثم أرسل الإيصال، وسيصلك كود التفعيل. (الدفع من داخل المتجر قيد التجهيز)", 12.5.sp, color = c.muted, lineHeight = 20.sp)
-            Spacer(Modifier.height(10.dp))
-            GhostButton("طلب الاشتراك عبر تيليجرام \u2066${com.daftari.app.core.AppInfo.DEV_TELEGRAM}\u2069", Modifier.fillMaxWidth(), R.drawable.ic_send, iconTint = androidx.compose.ui.graphics.Color(0xFF229ED9), onClick = onContact)
-            Spacer(Modifier.height(14.dp))
-            Field("كود التفعيل", code, { code = it.uppercase().filter { ch -> ch.isLetterOrDigit() || ch == '-' }.take(24) }, ltr = true, icon = R.drawable.ic_badge_check)
-            Spacer(Modifier.height(10.dp))
-            PrimaryButton("تفعيل", Modifier.fillMaxWidth(), enabled = code.length >= 6) { onActivate(code) }
-            Spacer(Modifier.height(24.dp))
-            T("المجانية: حتى ${Plan.FREE_PARTIES} حساب، كشف PDF، اتصال وواتساب ورسائل، وقفل البصمة. كل حساب جديد يبدأ بتجربة برو ${Plan.TRIAL_DAYS} أيام.", 12.sp, color = c.muted2, lineHeight = 19.sp, align = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(30.dp))
-        }
-    }
-}
-
 // ------------------------------------------------------------------ reports menu
 
 enum class ReportKind(val labelAr: String, val subAr: String, val icon: Int) {

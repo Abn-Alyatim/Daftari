@@ -94,7 +94,6 @@ import com.daftari.app.ui.common.T
 import com.daftari.app.ui.extra.ImportScreen
 import com.daftari.app.ui.extra.PasswordPrompt
 import com.daftari.app.ui.extra.PasswordSetup
-import com.daftari.app.ui.extra.PaywallScreen
 import com.daftari.app.ui.extra.ReportKind
 import com.daftari.app.ui.extra.ReportsMenu
 import com.daftari.app.ui.home.HomeActions
@@ -297,6 +296,8 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
     val paywall = { push(Route.Paywall) }
     var gate by remember { mutableStateOf<GateReq?>(null) }
     var bioDone by remember { mutableStateOf(false) }
+    // 1.1.5: maintenance / broadcast / subscription status on launch and every resume (never blocks local use)
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { vm.refreshRemote(); onPauseOrDispose { } }
     var restoreAsk by remember { mutableStateOf<com.daftari.app.audit.AuditRecord?>(null) }
     var logActions by remember { mutableStateOf<Set<String>>(emptySet()) }
     var logQuery by remember { mutableStateOf("") }
@@ -409,6 +410,12 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
         val top = stack.lastOrNull()
         if (top == null) {
             Column(Modifier.fillMaxSize()) {
+                val st by vm.appStatus.collectAsState()
+                val hidden by vm.maintenanceHidden.collectAsState()
+                val mt = st?.maintenance
+                androidx.compose.animation.AnimatedVisibility(mt != null && mt.on && !mt.fullScreen && !hidden) {
+                    com.daftari.app.ui.subs.MaintenanceBanner(mt?.message.orEmpty()) { vm.maintenanceHidden.value = true }
+                }
                 Box(Modifier.weight(1f)) {
                     when (tab) {
                         0 -> d?.let { dash ->
@@ -524,9 +531,7 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                             onPick = { smart -> if (!smart || vm.gate(Plan.Feature.SMART_IMPORT, onPaywall = paywall)) { smartPick = smart; importLauncher.launch(arrayOf("*/*")) } },
                             onConfirm = { rows -> if (vm.gate(Plan.Feature.UNLIMITED, summaries.size + rows.size - 1, paywall)) vm.confirmImport(rows, s.businessName, s.ownerName) { vm.importResult.value = null; pop(); tab = 1 } })
                     }
-                    Route.Paywall -> PaywallScreen(Plan.statusText(s), s.currency, onBack = { pop() },
-                        onActivate = { code -> vm.activatePro(code) { pop() } },
-                        onContact = { Share.telegramDev(ctx) })
+                    Route.Paywall -> SubscriptionRoute(vm, s, act, onBack = { pop() })
                     Route.Password -> PasswordSetup(onBack = { pop() }) { pw -> vm.setPassword(pw); vm.say("تم حفظ كلمة السر ✅"); pop() }
                     Route.Reports -> ReportsMenu(onBack = { pop() }) { k -> push(Route.ReportOf(k.name)) }
                     Route.Log -> {
@@ -626,6 +631,7 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                 }, onDismiss = { exportSheet = false })
         }
         BackupOverlays(vm)
+        ServerOverlays(vm, onRenew = { if (stack.lastOrNull() != Route.Paywall) push(Route.Paywall) })
         gate?.let { g0 ->
             val bio = Biometric.state(act)
             SecureGate(g0.title, g0.subtitle, bio, bioDone, s.hasPassword,
@@ -734,4 +740,76 @@ private fun ReportRoute(vm: AppViewModel, s: AppSettings, r: Route.ReportOf, onB
         onWhatsApp = { sum?.let { ps -> vm.export(build, ExportFormat.PDF) { f, fmt -> Share.whatsappFile(ctx, ps.party.phone, f, fmt.mime, vm.reminderText(ps.party, ps.balance)) } } },
         onSms = { sum?.let { ps -> Share.sms(ctx, ps.party.phone, vm.reminderText(ps.party, ps.balance)) } },
     )
+}
+
+
+/** 1.1.5 «الاشتراكات»: server plans and methods, the receipt from the camera (1.1.3 TakePicture flow + compression) or the gallery. */
+@Composable
+private fun SubscriptionRoute(vm: AppViewModel, s: AppSettings, act: FragmentActivity, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val load by vm.subLoad.collectAsState()
+    val flow by vm.subFlow.collectAsState()
+    val status by vm.subStatus.collectAsState()
+    val busy by vm.busy.collectAsState()
+    LaunchedEffect(Unit) { vm.openSubscriptions(act) }
+    fun shrink(open: () -> java.io.InputStream?, cleanup: () -> Unit = {}) {
+        scope.launch {
+            val dest = com.daftari.app.core.ReceiptCapture.newReceiptFile(ctx.cacheDir)
+            val ok = withContext(Dispatchers.IO) { runCatching { ImageUtil.compressReceipt(open, dest) }.getOrDefault(false).also { cleanup() } }
+            if (ok) vm.setSubReceipt(dest.path) else { dest.delete(); vm.say("تعذّر قراءة الصورة، جرّب صورة أخرى") }
+        }
+    }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> if (uri != null) shrink({ ctx.contentResolver.openInputStream(uri) }) }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        val shot = com.daftari.app.core.ReceiptCapture.settle(taken, vm.subFlow.value.cameraPending)
+        vm.updateSubFlow { it.copy(cameraPending = null) }
+        if (shot != null) shrink({ shot.inputStream() }) { shot.delete() }
+    }
+    fun openCamera() {
+        val f = com.daftari.app.core.ReceiptCapture.newCameraFile(ctx.cacheDir)
+        vm.updateSubFlow { it.copy(cameraPending = f.path) }
+        try { camera.launch(com.daftari.app.share.Share.uriFor(ctx, f)) }
+        catch (e: Exception) { com.daftari.app.core.ReceiptCapture.discard(ctx.cacheDir, f.path); vm.updateSubFlow { it.copy(cameraPending = null) }; vm.say("لا يوجد تطبيق للكاميرا على هذا الجهاز، فاختر صورة الإيصال من المعرض.") }
+    }
+    val thumb = remember(flow.receiptPath) {
+        flow.receiptPath?.let { p -> runCatching { android.graphics.BitmapFactory.decodeFile(p, android.graphics.BitmapFactory.Options().apply { inSampleSize = 2 })?.asImageBitmap() }.getOrNull() }
+    }
+    com.daftari.app.ui.subs.SubscriptionFlow(
+        com.daftari.app.ui.subs.SubUi(load, flow, status?.plan, status?.pending, Plan.statusText(s), thumb, busy != null, s.googleEmail),
+        com.daftari.app.ui.subs.SubActions(
+            onBack = onBack, onRetry = { vm.openSubscriptions(act) }, onFlow = { vm.updateSubFlow(it) },
+            onCopy = { label, text ->
+                val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+                if (Build.VERSION.SDK_INT < 33) vm.say("نُسخ $label")
+            },
+            onCamera = { openCamera() }, onGallery = { gallery.launch("image/*") }, onRemoveReceipt = { vm.setSubReceipt(null) },
+            onSubmit = { vm.submitSubscription(act) }, onRefreshStatus = { vm.refreshSubStatus(act) },
+            onActivationCode = { code -> vm.activatePro(code) { onBack() } },
+        ),
+    )
+}
+
+/** Panel-driven: full-screen maintenance, a broadcast, «تم الاشتراك» / rejection, «انتهى اشتراكك». */
+@Composable
+private fun ServerOverlays(vm: AppViewModel, onRenew: () -> Unit) {
+    val st by vm.appStatus.collectAsState()
+    val notice by vm.subNotice.collectAsState()
+    val bc by vm.broadcastNotice.collectAsState()
+    val expired by vm.expiredNotice.collectAsState()
+    var retrying by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val mt = st?.maintenance
+    if (mt != null && mt.fullScreen) {
+        com.daftari.app.ui.subs.MaintenanceScreen(mt.message, retrying) {
+            retrying = true
+            vm.refreshRemote()
+            scope.launch { delay(1500); retrying = false }
+        }
+        return
+    }
+    notice?.let { n -> com.daftari.app.ui.subs.SubDecisionDialog(n, onClose = { vm.dismissSubNotice() }, onRenew = { vm.dismissSubNotice(); onRenew() }) }
+    if (notice == null) bc?.let { b -> com.daftari.app.ui.subs.BroadcastDialog(b) { vm.dismissBroadcast() } }
+    if (notice == null && bc == null) expired?.let { name -> com.daftari.app.ui.subs.ExpiredDialog(name, onRenew = { vm.expiredNotice.value = null; onRenew() }, onClose = { vm.expiredNotice.value = null }) }
 }

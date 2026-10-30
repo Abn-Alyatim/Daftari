@@ -66,7 +66,7 @@ class Features114Test {
         val id = BuildConfig.DF_GOOGLE_WEB_CLIENT_ID
         // empty in CI builds without local.properties; when present it must look like an OAuth client id
         assertTrue(id, id.isEmpty() || Regex("^\\d+-[a-z0-9]+\\.apps\\.googleusercontent\\.com$").matches(id))
-        assertEquals("1.1.4", BuildConfig.VERSION_NAME); assertEquals(7, BuildConfig.VERSION_CODE)
+        assertTrue(BuildConfig.VERSION_CODE >= 7) // 1.1.4 and later
     }
 
     // ------------------------------------------------------------ account gate (first run / returning / upgrade)

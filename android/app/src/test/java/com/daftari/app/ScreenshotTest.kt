@@ -25,7 +25,6 @@ import com.daftari.app.ui.chat.ChatScreen
 import com.daftari.app.ui.common.ClipConfig
 import com.daftari.app.ui.extra.ImportScreen
 import com.daftari.app.ui.extra.LockScreen
-import com.daftari.app.ui.extra.PaywallScreen
 import com.daftari.app.ui.extra.ReportsMenu
 import com.daftari.app.ui.home.HomeActions
 import com.daftari.app.ui.home.HomeScreen
@@ -103,7 +102,7 @@ class ScreenshotTest {
         val st = AppSettings(onboarded = true, role = Role.LANDLORD, businessName = "سوق الكحلاني", ownerName = "سامي الهلباء", shopCount = 200, trialStartedAt = System.currentTimeMillis())
         shot("11_settings") { SettingsScreen(st, ServerInfo(version = "1.0.0", otpProvider = "whatsapp_cloud"), SettingsActions()) }
     }
-    @Test fun s12_paywall() { shot("12_paywall_pro") { PaywallScreen("تجربة برو مجانية · باقي 5 يوم", Currency.YER, {}, {}, {}) } }
+    @Test fun s12_paywall() { shot("12_paywall_pro") { com.daftari.app.ui.subs.SubscriptionFlow(com.daftari.app.ui.subs.SubUi(com.daftari.app.ui.subs.SubLoad.Ready(Samples115.config), com.daftari.app.ui.subs.SubFlowState(planId = "pro_month"), statusText = "تجربة برو مجانية · متبقٍّ 5 يوم"), com.daftari.app.ui.subs.SubActions()) } }
     @Test fun s13_import_review() {
         val rows = listOf(
             ImportRow("أيوب العبدلي", "1", activity = "بهارات", amount = 200_000, arrears = 600_000),

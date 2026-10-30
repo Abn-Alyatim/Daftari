@@ -69,7 +69,10 @@ fun SettingsScreen(s: AppSettings, info: ServerInfo?, a: SettingsActions) {
                     Badge(s.ownerName.take(1).ifBlank { "؟" }, 50.dp, 18.sp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        T(s.ownerName.ifBlank { "بلا اسم" }, 14.sp, FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            T(s.ownerName.ifBlank { "بلا اسم" }, 14.sp, FontWeight.Bold, modifier = Modifier.weight(1f, fill = false), maxLines = 1)
+                            com.daftari.app.core.Subs.badge(s)?.let { b -> Spacer(Modifier.width(8.dp)); com.daftari.app.ui.subs.PlanBadge(b) }
+                        }
                         val line = listOf(s.googleEmail.ifBlank { if (s.phone.isNotBlank()) Phone.display(s.phone) else s.email }, s.role.labelAr).filter { it.isNotBlank() }.joinToString(" · ")
                         T(line, 11.5.sp, color = c.muted, maxLines = 1)
                     }
@@ -112,7 +115,7 @@ fun SettingsScreen(s: AppSettings, info: ServerInfo?, a: SettingsActions) {
             }
             SectionTitle("الاشتراك")
             Group {
-                Item(R.drawable.ic_badge_check, "دفتري برو", com.daftari.app.core.Plan.statusText(s), a.onPro)
+                Item(R.drawable.ic_badge_check, "الاشتراكات", com.daftari.app.core.Plan.statusText(s), a.onPro)
             }
             SectionTitle("التنبيهات والتقارير")
             Group {

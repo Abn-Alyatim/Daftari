@@ -543,6 +543,142 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: ApiException) { say(if (e.code == "no_server") "التفعيل يحتاج الخادم — قيد التجهيز" else e.message) } finally { busy.value = null }
     }
 
+
+    // ---------- 1.1.5 subscriptions (transfer / wallet receipt → Madyan Panel), maintenance, broadcast ----------
+    val appStatus = MutableStateFlow<com.daftari.app.data.AppStatus?>(null)
+    val subLoad = MutableStateFlow<com.daftari.app.ui.subs.SubLoad>(com.daftari.app.ui.subs.SubLoad.Idle)
+    val subStatus = MutableStateFlow<com.daftari.app.data.SubStatus?>(null)
+    val subFlow = MutableStateFlow(com.daftari.app.ui.subs.SubFlowState())
+    /** a decided request the user has not seen yet → «تم الاشتراك» / «لم يُقبل الطلب». */
+    val subNotice = MutableStateFlow<com.daftari.app.data.SubRequestDto?>(null)
+    val broadcastNotice = MutableStateFlow<com.daftari.app.data.Broadcast?>(null)
+    /** the plan that just ran out (its name) → «انتهى اشتراكك». */
+    val expiredNotice = MutableStateFlow<String?>(null)
+    val maintenanceHidden = MutableStateFlow(false)
+    private var remoteJob: kotlinx.coroutines.Job? = null
+
+    /** On launch and every resume: maintenance / broadcast for everyone, the subscription status for a signed-in user. Never blocks local use. */
+    fun refreshRemote() {
+        if (remoteJob?.isActive == true) return
+        remoteJob = viewModelScope.launch {
+            val st = g.settings.current()
+            com.daftari.app.core.Subs.expired(st)?.let { name ->
+                expiredNotice.value = name
+                g.settings.update { it.copy(planName = "", planBadge = "") }
+            }
+            if (!g.api.configured) return@launch
+            try {
+                val a = g.api.appStatus()
+                if (appStatus.value?.maintenance?.on != a.maintenance.on) maintenanceHidden.value = false
+                appStatus.value = a
+                val bc = a.broadcast
+                if (bc != null && bc.id.isNotBlank() && bc.id != g.settings.current().lastBroadcastId) broadcastNotice.value = bc
+            } catch (e: Exception) { appStatus.value = null } // unreachable server: no banner, the app works offline
+            if (g.settings.current().authToken.isNotBlank()) try { applySubStatus(g.api.subStatus()) } catch (e: Exception) {
+                if (e is ApiException && e.status == 401) g.settings.update { it.copy(authToken = "") }
+            }
+        }
+    }
+
+    private suspend fun applySubStatus(st: com.daftari.app.data.SubStatus) {
+        subStatus.value = st
+        val p = st.plan
+        if (p != null) g.settings.update {
+            if (p.active) it.copy(proUntil = p.endsAt, planName = p.name, planBadge = p.badge, planStart = p.startsAt) else it.copy(proUntil = p.endsAt)
+        }
+        com.daftari.app.core.Subs.expired(g.settings.current())?.let { name ->
+            expiredNotice.value = name
+            g.settings.update { it.copy(planName = "", planBadge = "") }
+        }
+        st.notice?.let { subNotice.value = it }
+    }
+
+    fun dismissBroadcast() = viewModelScope.launch {
+        val bc = broadcastNotice.value ?: return@launch
+        broadcastNotice.value = null
+        g.settings.update { it.copy(lastBroadcastId = bc.id) }
+    }
+
+    fun dismissSubNotice() = viewModelScope.launch {
+        val n = subNotice.value ?: return@launch
+        subNotice.value = null
+        runCatching { g.api.subSeen(n.id) }
+        if (n.status == "rejected") subFlow.value = com.daftari.app.ui.subs.SubFlowState()
+    }
+
+    /** A server token for this Google account: the one we hold, else a fresh Google ID token exchanged at /auth/google. */
+    private suspend fun ensureToken(ctx: android.content.Context, force: Boolean = false): Boolean {
+        if (!force && g.settings.current().authToken.isNotBlank()) return true
+        val web = com.daftari.app.BuildConfig.DF_GOOGLE_WEB_CLIENT_ID
+        return when (val r = com.daftari.app.ui.auth.GoogleAuth.signIn(ctx, web, "تسجيل الدخول للاشتراك")) {
+            is com.daftari.app.ui.auth.GoogleResult.Ok -> {
+                val st = g.settings.current()
+                if (st.googleEmail.isNotBlank() && !AuthGate.sameAccount(st.googleEmail, r.email)) {
+                    say("اختر حساب Google المرتبط بهذا الدفتر: \u2066${st.googleEmail}\u2069"); false
+                } else {
+                    val a = g.api.google(com.daftari.app.data.GoogleLogin(r.idToken, st.role.name))
+                    g.settings.update { it.copy(authToken = a.token, googleEmail = it.googleEmail.ifBlank { r.email }, googleName = it.googleName.ifBlank { r.name }) }
+                    true
+                }
+            }
+            is com.daftari.app.ui.auth.GoogleResult.Cancelled -> false
+            is com.daftari.app.ui.auth.GoogleResult.Failed -> { say(r.message); false }
+        }
+    }
+
+    /** «الاشتراكات» opened: plans + methods from the server, and this account's status. */
+    fun openSubscriptions(ctx: android.content.Context) = viewModelScope.launch {
+        subLoad.value = com.daftari.app.ui.subs.SubLoad.Loading
+        try {
+            val cfg = g.api.subConfig()
+            subLoad.value = com.daftari.app.ui.subs.SubLoad.Ready(cfg)
+            if (subFlow.value.planId.isBlank()) cfg.plans.firstOrNull()?.let { p -> subFlow.value = subFlow.value.copy(planId = p.id) }
+            if (g.settings.current().authToken.isNotBlank()) runCatching { applySubStatus(g.api.subStatus()) }
+            else if (g.settings.current().googleEmail.isNotBlank()) runCatching { if (ensureToken(ctx)) applySubStatus(g.api.subStatus()) }
+        } catch (e: Exception) {
+            subLoad.value = com.daftari.app.ui.subs.SubLoad.Failed(com.daftari.app.core.Subs.errorText(e))
+        }
+    }
+
+    fun refreshSubStatus(ctx: android.content.Context) = viewModelScope.launch {
+        busy.value = "جارٍ تحديث الحالة…"
+        try { if (ensureToken(ctx)) applySubStatus(g.api.subStatus()) } catch (e: Exception) { say(com.daftari.app.core.Subs.errorText(e)) } finally { busy.value = null }
+    }
+
+    fun updateSubFlow(f: (com.daftari.app.ui.subs.SubFlowState) -> com.daftari.app.ui.subs.SubFlowState) { subFlow.value = f(subFlow.value) }
+
+    /** The receipt photo the flow holds (cacheDir/receipts, shrunk like 1.1.3's payment receipts). */
+    fun setSubReceipt(path: String?) {
+        val old = subFlow.value.receiptPath
+        if (old != null && old != path) com.daftari.app.core.ReceiptCapture.discard(getApplication<Application>().cacheDir, old)
+        subFlow.value = subFlow.value.copy(receiptPath = path)
+    }
+
+    fun submitSubscription(ctx: android.content.Context) = viewModelScope.launch {
+        val f = subFlow.value
+        val cfg = (subLoad.value as? com.daftari.app.ui.subs.SubLoad.Ready)?.config ?: return@launch
+        val method = cfg.methods.firstOrNull { it.id == f.methodId } ?: return@launch say("اختر طريقة الدفع")
+        val path = f.receiptPath ?: return@launch say("أرفق صورة الإيصال")
+        f.problem(method)?.let { return@launch say(it) }
+        busy.value = "جارٍ إرسال الطلب…"
+        try {
+            if (!ensureToken(ctx)) return@launch
+            val bytes = kotlinx.coroutines.withContext(Dispatchers.IO) { java.io.File(path).readBytes() }
+            val body = com.daftari.app.data.SubSubmit(f.planId, method.id, if (method.other) f.other.trim() else "", com.daftari.app.core.Subs.cleanTxn(f.txn),
+                f.name.trim().replace(Regex("\\s+"), " "), android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+            val res = try { g.api.submitSub(body) } catch (e: ApiException) {
+                if (e.status != 401 || !ensureToken(ctx, force = true)) throw e
+                g.api.submitSub(body)
+            }
+            subStatus.value = (subStatus.value ?: com.daftari.app.data.SubStatus()).copy(pending = res.request, last = res.request)
+            setSubReceipt(null)
+            subFlow.value = com.daftari.app.ui.subs.SubFlowState(planId = f.planId)
+            say("أُرسل طلبك وهو الآن قيد المراجعة")
+        } catch (e: Exception) {
+            say(com.daftari.app.core.Subs.errorText(e))
+        } finally { busy.value = null }
+    }
+
     // ---- extra reports ----
     suspend fun entriesReport(from: LocalDate, to: LocalDate): com.daftari.app.export.Report =
         com.daftari.app.export.ReportBuilder.allEntries(repo.allParties(), repo.allEntries(), s().role, s().businessName, s().ownerName, s().currency, from, to)

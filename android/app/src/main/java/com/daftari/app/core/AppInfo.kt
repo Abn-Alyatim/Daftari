@@ -7,7 +7,7 @@ object AppInfo {
     /** The in-app assistant's fixed name. */
     const val ASSISTANT = "مدين"
     const val ASSISTANT_EN = "MADYAN"
-    /** 1.1.4: the developer is reached on Telegram only (no phone number, no WhatsApp) — «تواصل مع المطوّر» and «طلب الاشتراك». */
+    /** 1.1.4: the developer is reached on Telegram only (no phone number, no WhatsApp) — «تواصل مع المطوّر» in Settings only (1.1.5: not on the subscription screens). */
     const val DEV_TELEGRAM = "@abnalyatim"
     const val DEV_TELEGRAM_URL = "https://t.me/abnalyatim"
 }
