@@ -52,6 +52,8 @@ data class HomeActions(
     val onSearch: () -> Unit = {}, val onQuickPay: () -> Unit = {}, val onQuickDebt: () -> Unit = {}, val onNewParty: () -> Unit = {},
     val onStatements: () -> Unit = {}, val onChat: () -> Unit = {}, val onParty: (Long) -> Unit = {}, val onSeeAll: () -> Unit = {},
     val onRemind: (PartySummary) -> Unit = {},
+    /** 1.1.6: the mic — say «سجل على محمد ألفين» and the entry opens pre-filled */
+    val onVoice: (() -> Unit)? = null,
 )
 
 @Composable
@@ -64,8 +66,10 @@ fun HomeScreen(d: Dashboard, role: Role, business: String, owner: String, curren
                 T("أهلاً ${owner.substringBefore(' ').ifBlank { "بك" }} 👋", 12.5.sp, FontWeight.Medium, c.muted)
                 T(business.ifBlank { if (landlord) "سوقي" else "محلي" }, 20.sp, FontWeight.ExtraBold, maxLines = 1)
             }
+            a.onVoice?.let { v -> com.daftari.app.voice.MicButton(v); Spacer(Modifier.width(8.dp)) }
             IconBox(R.drawable.ic_search, a.onSearch)
         }
+        if (a.onVoice != null) com.daftari.app.voice.PackStatusLine(Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         Column(Modifier.padding(horizontal = 16.dp)) {
             // hero
             Box(

@@ -121,6 +121,6 @@ class Features115Test {
 
     @Test fun serverUrlIsBakedWithAFallback() {
         assertTrue(BuildConfig.SERVER_URL.startsWith("https://"))
-        assertEquals(8, BuildConfig.VERSION_CODE); assertEquals("1.1.5", BuildConfig.VERSION_NAME)
+        assertTrue(BuildConfig.VERSION_CODE >= 8) // exact version pinned in Features116Test
     }
 }

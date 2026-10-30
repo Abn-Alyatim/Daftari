@@ -59,6 +59,8 @@ data class DetailsActions(
     val onBack: () -> Unit = {}, val onEdit: () -> Unit = {}, val onCall: () -> Unit = {}, val onWhatsApp: () -> Unit = {}, val onSms: () -> Unit = {},
     val onStatement: () -> Unit = {}, val onPay: () -> Unit = {}, val onDebt: () -> Unit = {}, val onDeleteEntry: (Entry) -> Unit = {},
     val onAttach: () -> Unit = {}, val onOpenAttachment: (Attachment) -> Unit = {}, val onDeleteAttachment: (Attachment) -> Unit = {},
+    /** 1.1.6: «سداد كامل» — opens the payment sheet with the whole remaining balance filled (the user still confirms) */
+    val onPayFull: (() -> Unit)? = null,
 )
 
 @Composable
@@ -110,10 +112,25 @@ fun PartyDetailsScreen(s: PartySummary, entries: List<Entry>, attachments: List<
                 }
             }
         }
-        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(120.dp).background(Brush.verticalGradient(listOf(Color.Transparent, c.bg, c.bg))))
-        Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (!landlord) PrimaryButton("دين جديد", Modifier.weight(1f), R.drawable.ic_plus, bg = c.s3, fg = c.text, onClick = a.onDebt)
-            PrimaryButton(if (landlord) "تسجيل دفعة" else "تسديد", Modifier.weight(1f), R.drawable.ic_banknote, onClick = a.onPay)
+        val payFull = a.onPayFull?.takeIf { s.balance > 0 }
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(if (payFull != null) 168.dp else 120.dp).background(Brush.verticalGradient(listOf(Color.Transparent, c.bg, c.bg))))
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp)) {
+            if (payFull != null) {
+                // 1.1.6: one tap fills the whole remaining balance; saving still needs «حفظ الدفعة»
+                Row(
+                    Modifier.align(Alignment.CenterHorizontally).padding(bottom = 10.dp).clip(RoundedCornerShape(50)).background(c.primarySoft)
+                        .border(1.dp, c.primary.copy(alpha = 0.35f), RoundedCornerShape(50)).clickable(onClick = payFull).padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    DfIcon(R.drawable.ic_check, 15.dp, if (c.isDark) c.primaryLight else c.primary)
+                    Spacer(Modifier.width(6.dp))
+                    T("سداد كامل · ${Money.format(s.balance, currency)}", 13.sp, FontWeight.Bold, if (c.isDark) c.primaryLight else c.primary, maxLines = 1)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (!landlord) PrimaryButton("دين جديد", Modifier.weight(1f), R.drawable.ic_plus, bg = c.s3, fg = c.text, onClick = a.onDebt)
+                PrimaryButton(if (landlord) "تسجيل دفعة" else "تسديد", Modifier.weight(1f), R.drawable.ic_banknote, onClick = a.onPay)
+            }
         }
     }
 }

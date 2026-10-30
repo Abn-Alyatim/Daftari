@@ -291,6 +291,13 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
     fun pop() { if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex) }
     // partyId, isDebt — saveable (1.1.3): the sheet must still be open when we come back from the camera, even after rotation or process death
     var money by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<Pair<Long, Boolean>?>(null) }
+    // 1.1.6 voice + quick entry: the next money sheet's pre-fill (VoicePrefill.encode(), "" = none), the listening dialog,
+    // the parsed sentence under review, and the quick customer picker (true = دين جديد, false = تسديد/دفعة)
+    var prefill by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var voiceListen by remember { mutableStateOf(false) }
+    var voiceDraft by remember { mutableStateOf<com.daftari.app.voice.VoiceDraft?>(null) }
+    var quickPick by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<Boolean?>(null) }
+    var pickKeepsPrefill by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var pwPrompt by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     var picked by remember { mutableStateOf<Pair<String, String>?>(null) }
     val paywall = { push(Route.Paywall) }
@@ -320,13 +327,15 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
         if (Build.VERSION.SDK_INT >= 33) act.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
     }
     LaunchedEffect(openParty.value) { openParty.value?.let { push(Route.Details(it)); openParty.value = null } }
-    BackHandler(stack.isNotEmpty() || money != null || tab != 0 || gate != null || restoreAsk != null || exportSheet) {
+    BackHandler(stack.isNotEmpty() || money != null || tab != 0 || gate != null || restoreAsk != null || exportSheet || voiceDraft != null || quickPick != null) {
         when {
             gate != null -> gate = null
             restoreAsk != null -> restoreAsk = null
             exportSheet -> exportSheet = false
             pwPrompt != null -> pwPrompt = null
-            money != null -> money = null
+            voiceDraft != null -> voiceDraft = null
+            quickPick != null -> { quickPick = null; pickKeepsPrefill = false; prefill = "" }
+            money != null -> { money = null; prefill = "" }
             stack.isNotEmpty() -> pop()
             else -> tab = 0
         }
@@ -420,7 +429,7 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                     when (tab) {
                         0 -> d?.let { dash ->
                             HomeScreen(dash, role, s.businessName, s.ownerName, s.currency, LocalDate.now(), HomeActions(
-                                onSearch = { tab = 1 }, onQuickPay = { tab = 1; vm.say("اختر الحساب ثم «تسديد»") }, onQuickDebt = { tab = 1; vm.say("اختر الزبون ثم «دين جديد»") },
+                                onSearch = { tab = 1 }, onQuickPay = { prefill = ""; quickPick = false }, onQuickDebt = { prefill = ""; quickPick = true }, onVoice = { voiceListen = true },
                                 onNewParty = { if (vm.gate(Plan.Feature.UNLIMITED, summaries.size, paywall)) push(Route.Edit(null)) },
                                 onStatements = { push(Route.ReportOf(ReportKind.ALL_TOTALS.name)) }, onChat = { tab = 2 },
                                 onParty = { push(Route.Details(it)) }, onSeeAll = { tab = 1 },
@@ -502,7 +511,8 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                             onWhatsApp = { Share.whatsappText(ctx, sum.party.phone, vm.reminderText(sum.party, sum.balance)) },
                             onSms = { Share.sms(ctx, sum.party.phone, vm.reminderText(sum.party, sum.balance)) },
                             onStatement = { push(Route.ReportOf("PARTY", top.id)) },
-                            onPay = { money = top.id to false }, onDebt = { money = top.id to true },
+                            onPay = { prefill = ""; money = top.id to false }, onDebt = { prefill = ""; money = top.id to true },
+                            onPayFull = { prefill = com.daftari.app.voice.VoicePrefill(amount = com.daftari.app.core.QuickEntry.fullBalanceText(sum.balance)).encode(); money = top.id to false },
                             onDeleteEntry = { e -> confirm("حذف العملية") { vm.deleteEntry(e.id) } },
                             onAttach = { attachLauncher.launch(arrayOf("image/*", "application/pdf")) },
                             onOpenAttachment = { a -> Share.open(ctx, vm.attachmentFile(a.fileName), a.mime) },
@@ -597,19 +607,79 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
 
         money?.let { (pid, debt) ->
             val sum = summaryOf(pid)
-            if (sum != null) Box(Modifier.fillMaxSize().background(Df.c.bg.copy(alpha = 0.6f)).clickable { money = null }, contentAlignment = Alignment.BottomCenter) {
-                Box(Modifier.clickable(enabled = false) {}) {
+            val pf = com.daftari.app.voice.VoicePrefill.decode(prefill)
+            if (sum != null) Box(Modifier.fillMaxSize().background(Df.c.bg.copy(alpha = 0.6f)).clickable { money = null; prefill = "" }, contentAlignment = Alignment.BottomCenter) {
+                // keyed so a switch دين ⇄ تسديد (1.1.6) opens a fresh sheet with its own pre-fill
+                androidx.compose.runtime.key(pid, debt, prefill) { Box(Modifier.clickable(enabled = false) {}) {
                     MoneySheet(debt, if (debt) "دين جديد" else "تسديد", sum.party.title, sum.balance, sum.party.periodicAmount, sum.party.cur(s.currency), landlord,
-                        onClose = { money = null; setReceipt(null); vm.pendingReceipt = null }, rates = s.rates, onFx = { vm.pendingFx = it }, onMethod = { vm.pendingMethod = it },
+                        onClose = { money = null; prefill = ""; setReceipt(null); vm.pendingReceipt = null }, rates = s.rates, onFx = { vm.pendingFx = it }, onMethod = { vm.pendingMethod = it },
                         onReceipt = { receiptLauncher.launch("image/*") }, receiptAttached = receiptPath != null,
                         onCamera = { openCamera() }, receiptThumb = receiptThumb, onRemoveReceipt = { setReceipt(null) },
-                        transferUsed = { vm.transferWarning(it) }) { amount, date, note, extra1, extra2, due, _ ->
+                        transferUsed = { vm.transferWarning(it) },
+                        initialCurrency = pf?.currency, initialAmount = pf?.amount.orEmpty(), voice = pf,
+                        onSwitchKind = { v -> prefill = v.encode(); money = pid to !debt }) { amount, date, note, extra1, extra2, due, _ ->
                         // the view model copies the photo into the payment's attachments, then deletes the temporary file
                         if (!debt) vm.pendingReceipt = receiptPath?.let { Uri.fromFile(java.io.File(it)) } else setReceipt(null)
                         receiptPath = null
                         if (debt) vm.addCharge(pid, amount, date, note, extra1, due) else vm.addPayment(pid, amount, date, note, extra1, extra2)
-                        money = null
+                        money = null; prefill = ""
                     }
+                } }
+            }
+        }
+        // ---- 1.1.6: the mic on the home screen → listen → review what was understood → the money sheet pre-filled
+        if (voiceListen) com.daftari.app.voice.VoiceCaptureDialog(
+            "سجّل على محمد صالح ألفين وخمسمئة",
+            onText = { text ->
+                voiceListen = false
+                val book = summaries.flatMap { ps ->
+                    listOf(com.daftari.app.voice.VoiceCustomer(ps.party.id, ps.party.title)) +
+                        listOfNotNull(com.daftari.app.voice.VoiceCustomer(ps.party.id, ps.party.name).takeIf { ps.party.name.isNotBlank() && ps.party.name != ps.party.title })
+                }
+                voiceDraft = com.daftari.app.voice.VoiceEntryParser.parse(text, book)
+            },
+            onDismiss = { voiceListen = false },
+        )
+        voiceDraft?.let { d ->
+            Box(Modifier.fillMaxSize().background(Df.c.bg.copy(alpha = 0.6f)).clickable { voiceDraft = null }, contentAlignment = Alignment.BottomCenter) {
+                Box(Modifier.clickable(enabled = false) {}) {
+                    com.daftari.app.voice.VoiceReviewSheet(
+                        d, landlord, s.currency, titleOf = { id -> summaryOf(id)?.party?.title },
+                        onContinue = { id, debt -> prefill = com.daftari.app.voice.VoicePrefill.of(d).encode(); voiceDraft = null; money = id to debt },
+                        onNewCustomer = { name, debt ->
+                            if (landlord) { picked = name to ""; voiceDraft = null; push(Route.Edit(null)) }
+                            else if (vm.gate(Plan.Feature.UNLIMITED, summaries.size, paywall)) {
+                                val pfText = com.daftari.app.voice.VoicePrefill.of(d).encode()
+                                voiceDraft = null
+                                vm.saveParty(Party(kind = com.daftari.app.domain.PartyKind.CUSTOMER, name = name.trim(), currency = d.currency?.code.orEmpty())) { id ->
+                                    prefill = pfText; money = id to debt
+                                }
+                            }
+                        },
+                        onPickFromList = { debt ->
+                            if (debt == null) vm.say("اختر نوع العملية أولاً")
+                            else { prefill = com.daftari.app.voice.VoicePrefill.of(d).encode(); pickKeepsPrefill = true; voiceDraft = null; quickPick = debt }
+                        },
+                        onRetry = { voiceDraft = null; voiceListen = true },
+                        onClose = { voiceDraft = null },
+                    )
+                }
+            }
+        }
+        // ---- 1.1.6: quick customer picker for «دين جديد / تسديد» on the home screen (recent 5 + search + mic)
+        quickPick?.let { debt ->
+            val allEntries by remember { vm.repo.entries }.collectAsState(initial = emptyList())
+            val recent = remember(allEntries, summaries) { com.daftari.app.core.QuickEntry.recentPartyIds(allEntries, summaries.map { it.party.id }.toSet()) }
+            val close = { quickPick = null; pickKeepsPrefill = false; prefill = "" }
+            Box(Modifier.fillMaxSize().background(Df.c.bg.copy(alpha = 0.6f)).clickable { close() }, contentAlignment = Alignment.BottomCenter) {
+                Box(Modifier.clickable(enabled = false) {}) {
+                    com.daftari.app.ui.parties.QuickPickSheet(
+                        if (debt) "دين جديد" else if (landlord) "تسجيل دفعة" else "تسديد", summaries, recent, s.currency,
+                        onPick = { id -> if (!pickKeepsPrefill) prefill = ""; pickKeepsPrefill = false; quickPick = null; money = id to debt },
+                        onVoice = { close(); voiceListen = true },
+                        onNew = { close(); if (vm.gate(Plan.Feature.UNLIMITED, summaries.size, paywall)) push(Route.Edit(null)) },
+                        onClose = close,
+                    )
                 }
             }
         }

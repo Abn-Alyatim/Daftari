@@ -212,7 +212,8 @@ class Features111Test {
         val found = ArrayList<String>()
         main.walkTopDown().filter { it.name == "strings.xml" }.forEach { f -> dialectIn(f.readText()).forEach { found += "${f.name}: $it" } }
         val lit = Regex("\"((?:[^\"\\\\\\n]|\\\\.)*)\"")
-        main.walkTopDown().filter { it.extension == "kt" && it.name != "Nlu.kt" }.forEach { f ->
+        // Nlu.kt and voice/VoiceEntryParser.kt (1.1.6) hold the vocabulary the app READS from speech / typing, dialect on purpose
+        main.walkTopDown().filter { it.extension == "kt" && it.name !in setOf("Nlu.kt", "VoiceEntryParser.kt") }.forEach { f ->
             f.readLines().forEachIndexed { i, line ->
                 if (line.trimStart().startsWith("//") || line.trimStart().startsWith("*")) return@forEachIndexed
                 lit.findAll(line).map { it.groupValues[1] }.filter { it !in inputVocabulary }.forEach { s -> dialectIn(s).forEach { found += "${f.name}:${i + 1} «$it» in \"$s\"" } }

@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -154,6 +155,10 @@ fun MoneySheet(
     onCamera: (() -> Unit)? = null, receiptThumb: androidx.compose.ui.graphics.ImageBitmap? = null, onRemoveReceipt: (() -> Unit)? = null,
     transferUsed: (String) -> String? = { null },
     initialCurrency: Currency? = null, initialMethod: String = "cash", initialAmount: String = "", initialTransfer: String = "", initialCompany: String = "", initialPhone: String = "",
+    /** 1.1.6: a pre-fill from the voice (or «سداد كامل»): note / items and what was heard; the user still reviews and saves */
+    voice: com.daftari.app.voice.VoicePrefill? = null,
+    /** 1.1.6: the sentence said the other kind («سدد» in «دين جديد»): reopen the other sheet with the same pre-fill */
+    onSwitchKind: ((com.daftari.app.voice.VoicePrefill) -> Unit)? = null,
     onSave: (amount: Long, date: LocalDate, note: String, extra1: String, extra2: String, due: LocalDate?, notify: Boolean) -> Unit,
 ) {
     val c = Df.c
@@ -168,10 +173,19 @@ fun MoneySheet(
     var senderPhone by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialPhone) }
     var rateText by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var amount by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialAmount) }
-    var note by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var note by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(if (!debt) voice?.note.orEmpty() else "") }
     var collector by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var receipt by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
-    var items by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var items by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(if (debt) voice?.note.orEmpty() else "") }
+    // 1.1.6 voice: what was heard, what the sentence said the entry is, and what was filled from it
+    var heard by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(voice?.transcript.orEmpty()) }
+    var heardKind by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(voice?.kind?.name.orEmpty()) }
+    var filled by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(voice?.let { voiceFilled(it, debt) }.orEmpty()) }
+    var listening by remember { mutableStateOf(false) }
+    val amountFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    // the amount field opens the number pad at once (not when the voice already filled it: the user reviews first)
+    LaunchedEffect(Unit) { if (initialAmount.isBlank() && voice == null) { kotlinx.coroutines.delay(300); runCatching { amountFocus.requestFocus(); keyboard?.show() } } }
     var daysAgo by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0L) }
     var dueIn by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<Long?>(null) }
     var notify by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
@@ -188,7 +202,36 @@ fun MoneySheet(
         Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { T(title, 17.sp, FontWeight.ExtraBold); T(subtitle, 12.5.sp, color = c.muted, maxLines = 1) }
+            com.daftari.app.voice.MicButton({ listening = true }, 36.dp)
+            Spacer(Modifier.width(8.dp))
             IconBox(R.drawable.ic_x, onClose, 36.dp)
+        }
+        if (listening) com.daftari.app.voice.VoiceCaptureDialog(
+            if (debt) "عليه ألفين وخمسمية حق غاز" else "سدد ثلاثة آلاف",
+            onText = { text ->
+                listening = false
+                val d = com.daftari.app.voice.VoiceEntryParser.parse(text, emptyList())
+                if (d.amountText.isNotEmpty()) amount = d.amountText
+                d.currency?.let { payCur = it }
+                if (d.note.isNotBlank()) { if (debt) items = d.note else note = d.note }
+                heard = text; heardKind = d.kind?.name.orEmpty()
+                filled = voiceFilled(com.daftari.app.voice.VoicePrefill.of(d), debt)
+            },
+            onDismiss = { listening = false },
+        )
+        com.daftari.app.voice.PackStatusLine(Modifier.padding(top = 10.dp))
+        if (heard.isNotBlank()) {
+            val saidOther = heardKind.isNotEmpty() && (heardKind == com.daftari.app.voice.VoiceKind.DEBT.name) != debt
+            val otherName = if (debt) (if (landlord) "دفعة" else "تسديد") else "دين جديد"
+            com.daftari.app.voice.HeardLine(
+                heard, filled,
+                warning = if (saidOther) "فهمتُ من كلامك «$otherName»، وهذه نافذة «$title»." else null,
+                action = if (saidOther && onSwitchKind != null && !(landlord && !debt)) "التبديل إلى «$otherName»" else null,
+                onAction = onSwitchKind?.let { sw -> {
+                    sw(com.daftari.app.voice.VoicePrefill(amount, payCur.takeIf { it != currency }, if (debt) items else note, heard,
+                        com.daftari.app.voice.VoiceKind.entries.firstOrNull { it.name == heardKind }))
+                } },
+            )
         }
         Column(
             Modifier.padding(top = 16.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(c.s2).border(1.5.dp, c.primary, RoundedCornerShape(18.dp)).padding(vertical = 12.dp, horizontal = 16.dp),
@@ -201,7 +244,8 @@ fun MoneySheet(
             BasicTextField(
                 amount, { amount = it }, singleLine = true,
                 textStyle = TextStyle(color = c.text, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, fontFamily = NotoArabic, textAlign = TextAlign.Center, textDirection = TextDirection.Ltr),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), cursorBrush = SolidColor(c.primary), modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), cursorBrush = SolidColor(c.primary),
+                modifier = Modifier.fillMaxWidth().focusRequester(amountFocus),
             )
             val after = if (debt) balance + parsed else balance - parsed
             if (foreign) {
@@ -224,6 +268,10 @@ fun MoneySheet(
             if (!debt && balance > 0) Chip("الكل ${Money.number(balance)}", false, Modifier.weight(1f)) { amount = amt(balance) }
             if (!debt && balance > 0) Chip("النصف", false, Modifier.weight(1f)) { amount = amt(balance / 2) }
             if (debt) listOf(500L, 1000L, 2000L, 5000L).forEach { v -> Chip(Money.number(v * 100), false, Modifier.weight(1f)) { amount = v.toString() } }
+        }
+        // 1.1.6: one-tap amounts for payments too
+        if (!debt) Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            com.daftari.app.core.QuickEntry.PAY_CHIPS.forEach { v -> Chip(Money.number(v * 100), amount == v.toString(), Modifier.weight(1f)) { amount = v.toString() } }
         }
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(0L to "اليوم", 1L to "أمس", 2L to "قبل يومين").forEach { (d, l) -> Chip(l, daysAgo == d, Modifier.weight(1f)) { daysAgo = d } }
@@ -315,3 +363,13 @@ fun MoneySheet(
 }
 
 @Suppress("unused") @Composable private fun keep() = GhostButton("") {}
+
+/** 1.1.6: «عُبّئ: …» — the fields the voice filled, in words, so nothing is filled silently. */
+internal fun voiceFilled(v: com.daftari.app.voice.VoicePrefill, debt: Boolean): String {
+    val parts = buildList {
+        if (v.amount.isNotBlank()) add("المبلغ ${Money.parse(v.amount)?.let { Money.number(it) } ?: v.amount}")
+        v.currency?.let { add("العملة ${it.labelAr}") }
+        if (v.note.isNotBlank()) add((if (debt) "الأغراض: " else "الملاحظة: ") + v.note)
+    }
+    return if (parts.isEmpty()) "لم أفهم مبلغاً؛ اكتبه أو أعد المحاولة." else "عُبّئ: " + parts.joinToString(" · ")
+}
