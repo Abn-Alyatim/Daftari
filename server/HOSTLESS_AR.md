@@ -20,7 +20,15 @@
 - **GROQ_API_KEY_2** (اختياري): مفتاح ثانٍ يُستخدم إذا قال الأول «طلبات كثيرة».
 - (اختياري) **VOICE_HOURLY_LIMIT** = 60 تسجيلاً في الساعة لكل مستخدم مسجّل، و**ANON_VOICE_HOURLY_LIMIT** = 20 لكل جهاز غير مسجّل.
 
-ثم **Save & Deploy**. للتأكد افتح https://daftari.hostless.app/health ويجب أن يظهر `"ok":true` و `"version":"1.2.0"`. وفي https://daftari.hostless.app/api/v1/info يظهر `"voiceReady":true` عند وضع مفتاح Groq.
+ثم **Save & Deploy**. للتأكد افتح https://daftari.hostless.app/health ويجب أن يظهر `"ok":true` و `"version":"1.2.1"`. وفي https://daftari.hostless.app/api/v1/info يظهر `"voiceReady":true` عند وضع مفتاح Groq.
+
+### إذا ظهر في /health `"dbReady":false`
+الخادم شغّال لكنه لم يتصل بقاعدة البيانات بعد (يعيد المحاولة وحده كل ثوانٍ). الكلمة في `dbError` تقول السبب:
+- `auth_failed` ← كلمة المرور في DATABASE_URL خطأ، انسخ الرابط من جديد من Neon
+- `host_not_found` ← عنوان الخادم في الرابط خطأ
+- `database_not_found` ← اسم قاعدة البيانات في آخر الرابط خطأ
+- `timeout` / `unreachable` ← Neon نائم أو الشبكة، انتظر دقيقة
+ملاحظة: الصق الرابط وحده (يبدأ بـ postgresql://)، ولو نسخت معه `psql '…'` يقبله الخادم من 1.2.1.
 
 ## 3) اربطه بلوحة مَدْيَن
 لوحة مَدْيَن ← إضافة تطبيق ← نوع الربط **دفتري** ← الرابط https://daftari.hostless.app ← رمز الإدارة = **ADMIN_TOKEN** نفسه ← اختبار الاتصال ← حفظ بالبصمة.

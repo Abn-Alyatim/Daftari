@@ -32,15 +32,29 @@ export interface Config {
   version: string;
 }
 
+/** 1.2.1: PORT that is unset, empty or not a number falls back to 8080 (Number("") was 0 = a random port). */
+export function parsePort(v: string | undefined, fallback = 8080): number {
+  const n = Number((v ?? "").trim());
+  return Number.isInteger(n) && n > 0 && n < 65536 ? n : fallback;
+}
+
+/** 1.2.1: DATABASE_URL pasted the way Neon's dashboard shows it — `psql 'postgresql://…'`, quotes or spaces — is cleaned to the bare URL. */
+export function cleanDatabaseUrl(v: string | undefined): string {
+  let s = (v ?? "").trim();
+  if (/^psql\s+/i.test(s)) s = s.replace(/^psql\s+/i, "").trim();
+  if ((s.startsWith("'") && s.endsWith("'")) || (s.startsWith('"') && s.endsWith('"'))) s = s.slice(1, -1).trim();
+  return s;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const p = (env.OTP_PROVIDER ?? "").trim();
   const otpProvider = (["whatsapp_cloud", "sms", "dev", "none"].includes(p) ? p : (env.WHATSAPP_TOKEN ? "whatsapp_cloud" : "none")) as Config["otpProvider"];
   return {
-    port: Number(env.PORT ?? 8080),
-    host: env.HOST ?? "0.0.0.0",
+    port: parsePort(env.PORT),
+    host: (env.HOST ?? "").trim() || "0.0.0.0",
     authSecret: env.AUTH_SECRET ?? "dev-secret-change-me",
     adminToken: env.ADMIN_TOKEN ?? "",
-    databaseUrl: env.DATABASE_URL ?? "",
+    databaseUrl: cleanDatabaseUrl(env.DATABASE_URL),
     otpProvider,
     whatsappToken: env.WHATSAPP_TOKEN ?? "",
     whatsappPhoneId: env.WHATSAPP_PHONE_ID ?? "",
@@ -63,6 +77,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     geminiModel: env.GEMINI_MODEL ?? "gemini-2.0-flash",
     chatDailyLimit: Number(env.CHAT_DAILY_LIMIT ?? 60),
     anonDailyLimit: Number(env.ANON_DAILY_LIMIT ?? 15),
-    version: "1.2.0",
+    version: "1.2.1",
   };
 }

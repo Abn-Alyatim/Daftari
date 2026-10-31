@@ -39,6 +39,8 @@ export interface Store {
   subReceipt(id: string): Promise<{ mime: string; bytes: Buffer } | null>;
   allUsers(): Promise<User[]>;
   touchUser(id: string, at: number): Promise<void>;
+  /** 1.2.1: release connections on shutdown (SIGTERM from the host on redeploy) */
+  close?(): Promise<void>;
 }
 
 export class MemoryStore implements Store {
@@ -85,8 +87,17 @@ export class MemoryStore implements Store {
 export class PgStore implements Store {
   private pool: pg.Pool;
   constructor(url: string) {
-    this.pool = new pg.Pool({ connectionString: url, max: 4, ssl: url.includes("localhost") ? undefined : { rejectUnauthorized: false } });
+    const local = /@(localhost|127\.0\.0\.1)(:|\/)/.test(url);
+    this.pool = new pg.Pool({
+      connectionString: url, max: 4, ssl: local ? undefined : { rejectUnauthorized: false },
+      // 1.2.1: a dead DB host fails in 15 s instead of hanging; idle clients are let go before Neon suspends its compute
+      connectionTimeoutMillis: 15_000, idleTimeoutMillis: 60_000, keepAlive: true,
+    });
+    // 1.2.1: Neon (and any Postgres) closes idle connections — compute auto-suspend, restarts, admin terminate.
+    // pg.Pool re-emits that as an 'error' event; with no listener Node treats it as uncaught and the whole server exits.
+    this.pool.on("error", (e) => console.error(`[db] idle connection dropped: ${e.message} (pool reconnects on the next query)`));
   }
+  async close() { await this.pool.end(); }
   private q(text: string, values: unknown[] = []) { return this.pool.query(text, values); }
   async init() {
     await this.q(`CREATE TABLE IF NOT EXISTS df_users (id TEXT PRIMARY KEY, phone TEXT, email TEXT, name TEXT, role TEXT, pro_until BIGINT DEFAULT 0, created_at BIGINT)`);

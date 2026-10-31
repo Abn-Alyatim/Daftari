@@ -9,7 +9,9 @@ import { hashCode, newOtp, normalizePhone, signToken, verifyToken } from "./auth
 import { isAdmin, planOf, registerSubs } from "./subs.js";
 import { registerVoice } from "./voice.js";
 
-export interface Deps { cfg: Config; store: Store; otp: OtpRouter; ai: Ai; fetch?: Fetch; now?: () => number }
+/** 1.2.1: the server listens before the database is ready (the host's port check passes at once); routes that need the DB wait for it here. */
+export interface DbGate { kind: "postgres" | "memory"; isReady(): boolean; lastError(): string; waitReady(ms: number): Promise<boolean> }
+export interface Deps { cfg: Config; store: Store; otp: OtpRouter; ai: Ai; fetch?: Fetch; now?: () => number; db?: DbGate }
 
 const err = (code: string, message: string) => ({ error: { code, message } });
 const today = (now: number) => new Date(now + 3 * 3600_000).toISOString().slice(0, 10); // Asia/Aden day
@@ -27,7 +29,19 @@ export function buildApp(d: Deps): FastifyInstance {
   }
   const auth = (u: User) => ({ token: signToken(cfg.authSecret, u.id), user: { id: u.id, phone: u.phone, email: u.email, name: u.name, role: u.role }, proUntil: u.proUntil, plan: planOf(u, now()) });
 
-  app.get("/health", async () => ({ ok: true, name: "daftari", version: cfg.version }));
+  const db = d.db;
+  const NO_DB = new Set(["/health", "/api/v1/info"]);
+  if (db) {
+    app.addHook("onRequest", async (req, reply) => {
+      if (db.isReady() || NO_DB.has(req.url.split("?")[0])) return;
+      if (await db.waitReady(10_000)) return;
+      return reply.code(503).header("retry-after", "10").send(err("db_unavailable", "الخادم يتصل بقاعدة البيانات، جرّب بعد قليل"));
+    });
+  }
+  app.get("/health", async () => ({
+    ok: true, name: "daftari", version: cfg.version,
+    ...(db ? { db: db.kind, dbReady: db.isReady(), ...(db.isReady() ? {} : { dbError: db.lastError() || "connecting" }) } : {}),
+  }));
   app.get("/api/v1/info", async () => ({
     name: "daftari", version: cfg.version, otpProvider: otp.name, otpChannels: otp.channels, otpReady: otp.ready,
     googleClientId: cfg.googleClientId, aiReady: ai.ready, voiceReady: !!(cfg.groqKey || cfg.groqKey2),
