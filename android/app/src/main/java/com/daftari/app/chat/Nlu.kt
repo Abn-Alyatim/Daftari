@@ -1,3 +1,12 @@
+/*
+ * دفتري · chat/Nlu.kt
+ * «مدين» دون إنترنت: فهم الأوامر العربية (فصحى + يمني/خليجي) على الجهاز — النية، المبلغ، العملة، اسم الزبون، الأغراض، التاريخ.
+ * Rules + keyword intents + entity extraction. Pure Kotlin (unit-tested in NluTest / Features118Test), no network, no model.
+ * 1.1.8: the customer's name is the whole run of name words up to the amount / verb ([NameSpan]) — «أضف محمد اليتيم ألف»
+ * is «محمد اليتيم», never «محمد» + items «اليتيم»; items come only with «بـ» («رز وسكر بـ5000») or after the amount.
+ * Madyan's phrases: «سجل عليه (500)» → the last customer of the chat ([ChatMemory]); «سدد الي عليه كامل/كاملاً» → his
+ * whole balance; «اخذ بـ500 رز» → a debt with items; «طلع/نزل/اطبع/خرج لي كشف (فلان)» → his statement as PDF.
+ */
 package com.daftari.app.chat
 
 import java.math.BigDecimal
@@ -100,12 +109,14 @@ object ArabicNumbers {
     )
     private val hundredsSuffix = listOf("ميه", "مايه", "مائه", "مئه")
     private val unitStems = mapOf("ثلاث" to 3, "ثلث" to 3, "تلت" to 3, "اربع" to 4, "خمس" to 5, "ست" to 6, "سبع" to 7, "ثمان" to 8, "ثمن" to 8, "تمن" to 8, "تسع" to 9)
-    private val multipliers = mapOf("الف" to 1000L, "الاف" to 1000L, "الوف" to 1000L, "ك" to 1000L, "k" to 1000L, "مليون" to 1_000_000L, "ملايين" to 1_000_000L, "مليونين" to 2_000_000L)
+    private val multipliers = mapOf("الف" to 1000L, "الاف" to 1000L, "الوف" to 1000L, "تلاف" to 1000L, "تالاف" to 1000L, "ك" to 1000L, "k" to 1000L, "مليون" to 1_000_000L, "ملايين" to 1_000_000L, "مليونين" to 2_000_000L)
     private val fractions = mapOf("نص" to BigDecimal("0.5"), "نصف" to BigDecimal("0.5"), "ربع" to BigDecimal("0.25"))
 
     private fun wordValue(w: String): Int? {
         units[w]?.let { return it }
         if (w.length > 3 && w[0] == 'ب') units[w.substring(1)]?.let { return it }
+        // 1.1.8 «بخمسمية»: the «بـ» prefix on a hundreds word
+        if (w.length > 4 && w[0] == 'ب') for (suf in hundredsSuffix) if (w.endsWith(suf) && w.length > suf.length + 1) unitStems[w.substring(1).removeSuffix(suf)]?.let { return it * 100 }
         for (suf in hundredsSuffix) if (w.endsWith(suf) && w.length > suf.length) {
             unitStems[w.removeSuffix(suf)]?.let { return it * 100 }
         }
@@ -134,6 +145,7 @@ object ArabicNumbers {
             w in setOf("يمني", "yer") -> Cur.YER
             w in setOf("دولار", "دولارات", "usd", "$", "دولارا") -> Cur.USD
             w in setOf("ريال", "ريالات") -> Cur.YER
+            w in setOf("ر.ي", "ر.ي.", "ري") -> Cur.YER // 1.1.8: the rial written short
             else -> null
         }
     }
@@ -145,6 +157,8 @@ object ArabicNumbers {
         while (i < words.size) {
             val w = words[i]
             val startVal = digits(w) ?: wordValue(w)?.toBigDecimal() ?: multipliers[w]?.takeIf { w == "الف" || w == "مليون" }?.let { BigDecimal.ONE }
+                // 1.1.8 «نص ألف» / «ربع مليون»: a fraction right before a multiplier
+                ?: fractions[w]?.takeIf { multipliers.containsKey(words.getOrNull(i + 1)) }
             if (startVal == null || (digits(w) != null && looksLikePhone(w))) { i++; continue }
             var total = BigDecimal.ZERO
             var current = BigDecimal.ZERO
@@ -158,6 +172,7 @@ object ArabicNumbers {
                 val mult = multipliers[t]
                 val frac = fractions[t] ?: fractions[t.removePrefix("و")]
                 when {
+                    j == i && d == null && wv == null && fractions[t] != null -> { current = fractions[t]!!; any = true }
                     d != null -> { if (any && current.signum() != 0 && words[j - 1] != "و") break; current += d; any = true }
                     wv != null -> {
                         if (wv == 2000) { total += BigDecimal(2000); lastMult = 1000 } else current += wv.toBigDecimal()
@@ -195,7 +210,8 @@ data class Customer(val id: Long, val name: String, val phone: String = "")
 sealed interface NameMatch {
     data class Found(val c: Customer, val start: Int, val end: Int) : NameMatch
     data class Ambiguous(val options: List<Customer>, val start: Int, val end: Int) : NameMatch
-    data class NotFound(val guess: String) : NameMatch
+    /** [suggestions]: existing accounts that share part of the name («محمد» for «محمد اليتيم») — offered, never assumed. */
+    data class NotFound(val guess: String, val suggestions: List<Customer> = emptyList()) : NameMatch
 }
 
 object NameMatcher {
@@ -239,9 +255,11 @@ object NameMatcher {
 
 sealed interface Command {
     data class AddDebt(val who: NameMatch?, val amount: AmountHit?, val items: String, val date: LocalDate) : Command
-    data class AddPayment(val who: NameMatch?, val amount: AmountHit?, val note: String, val date: LocalDate, val method: String = "", val transferNo: String = "", val transferCo: String = "", val senderPhone: String = "") : Command
+    /** [full] = «سدد الي عليه كامل»: the amount is the customer's whole current balance (filled in by the assistant). */
+    data class AddPayment(val who: NameMatch?, val amount: AmountHit?, val note: String, val date: LocalDate, val method: String = "", val transferNo: String = "", val transferCo: String = "", val senderPhone: String = "", val full: Boolean = false, val half: Boolean = false) : Command
     data class Balance(val who: NameMatch?) : Command
-    data class Statement(val who: NameMatch?) : Command
+    /** [pdf] = «طلع / نزل / اطبع / خرج لي كشف»: open the statement as a PDF, not only the table in the chat. */
+    data class Statement(val who: NameMatch?, val pdf: Boolean = false) : Command
     data class TopDebtors(val n: Int) : Command
     data object Today : Command
     data object TotalOwed : Command
@@ -255,12 +273,14 @@ sealed interface Command {
 object Nlu {
     private fun ns(vararg w: String): Set<String> = w.map { ArabicText.normalize(it) }.toSet()
 
-    private val paymentVerbs = ns(
+    private val paymentVerbs: Set<String> by lazy { paymentVerbs0 + lexPay }
+    private val paymentVerbs0 = ns(
         "سدد", "سددت", "سدده", "سددلي", "تسديد", "سداد", "دفع", "دفعت", "دفعه", "دفعو", "دفعوا", "سلم", "سلمني", "سلملي", "عطاني", "اعطاني", "جاب",
         "جابلي", "قضى", "قضا", "ورد", "رجع", "رجعلي", "خلص", "استلمت", "قبضت", "اخذت", "خذيت", "حصلت", "استلم",
     )
     private val payNouns = ns("دفعه", "سداد", "تسديد", "قسط")
-    private val debtVerbs = ns(
+    private val debtVerbs: Set<String> by lazy { debtVerbs0 + lexDebt }
+    private val debtVerbs0 = ns(
         "سجل", "سجلي", "سجله", "قيد", "قيدي", "اكتب", "اكتبي", "اكتبه", "حط", "حطه", "ضيف", "اضف", "زيد", "دين", "دينه", "ديون", "اخذ", "خذ",
         "شل", "شال", "اشترى", "شرى", "استلف", "تسلف", "سلفه", "بالدين", "اجل", "بالاجل", "عليه", "على", "طلب",
     )
@@ -271,14 +291,85 @@ object Nlu {
     private val stop = ns(
         "على", "علي", "عليه", "لي", "له", "من", "عند", "مبلغ", "بمبلغ", "قيمه", "بقيمه", "حق", "ب", "بـ", "في", "الى", "الي", "ل", "يا", "مدين",
         "ريال", "ريالات", "سعودي", "يمني", "دولار", "اليوم", "امس", "البارحه", "حساب", "حسابه", "الحساب", "دين", "الدين", "دينه", "و", "واحد", "بس",
-        "لو", "سمحت", "فضلك", "اخ", "الاخ", "الزبون", "زبون", "عميل", "العميل", "عن", "ثمن", "قيمة", "بسعر", "سعر",
+        "لو", "سمحت", "فضلك", "اخ", "الاخ", "ر.ي", "ري", "الزبون", "زبون", "عميل", "العميل", "عن", "ثمن", "قيمة", "بسعر", "سعر",
     )
 
-    fun parse(text: String, customers: List<Customer>, today: LocalDate, now: LocalDateTime = LocalDateTime.now()): Command {
+    // ---- 1.1.8: Madyan's phrases and the whole-name rule; the Yemeni sales words come from [DialectLexicon]
+    private val lexDebt by lazy { DialectLexicon.words(DialectLexicon.Intent.DEBT) + DialectLexicon.words(DialectLexicon.Intent.TOOK) }
+    private val lexPay by lazy { DialectLexicon.words(DialectLexicon.Intent.PAYMENT) }
+    /** Words that are never part of a customer's name (besides [stop] and the verbs). */
+    private val notName = ns(
+        "كامل", "كاملا", "كامله", "بالكامل", "كله", "كلها", "كل", "الي", "اللي", "الذي", "عليه", "عليها", "عليهم", "المبلغ", "الحساب", "حسابه", "حسابها",
+        "رصيده", "رصيدها", "الرصيد", "خالص", "لي", "له", "لها", "منه", "منها", "مني", "لنا", "جديد", "جديده", "اسمه", "كشف", "الكشف", "كشفه", "كشفها", "كشفي",
+        "تفاصيل", "حركات", "عمليات", "الحين", "الان", "هذا", "هذي", "يعني", "طيب", "تمام", "ايوه", "خلاص", "كمان", "ايضا", "برضو", "عاد", "انه",
+        "اعطيت", "اعطيته", "عطيت", "عطيته", "اديته", "اديت", "سلفت", "سلفته", "اشتري", "ياخذ", "يدفع", "يسدد", "سددها", "دفعها", "ردلي", "حول", "حولي",
+        "حوللي", "وصل", "وصلني", "صفي", "صفا", "صفاه", "كم", "قديش", "كام", "باقي", "متبقي", "بقي", "هل", "مين", "ايش", "وش", "ابغى", "ابغي", "ابي", "اريد",
+    )
+    /** «طلع / نزل / اطبع / خرج لي كشف»: give me the statement (as a PDF). */
+    private val printVerbs: Set<String> by lazy { printVerbs0 + DialectLexicon.words(DialectLexicon.Intent.SHOW) }
+    private val printVerbs0 = ns(
+        "طلع", "طلعلي", "طلعه", "نزل", "نزللي", "نزله", "اطبع", "اطبعلي", "اطبعه", "طبع", "خرج", "خرجلي", "اخرج", "اخرجلي", "خرجه",
+        "اعطني", "عطني", "ارسل", "ارسلي", "ابعث", "ابعثلي", "اعرض", "هات", "هاتلي", "جيب", "جيبلي", "وريني", "ورني",
+    )
+    private val statementNouns by lazy { ns("كشف", "الكشف", "كشفه", "كشفها", "كشفي", "كشوفات") + DialectLexicon.words(DialectLexicon.Intent.STATEMENT) }
+    private val fullWords by lazy { ns("كامل", "كاملا", "كامله", "بالكامل", "كله", "كلها", "خالص") + DialectLexicon.words(DialectLexicon.Intent.FULL) }
+    private val halfWords by lazy { ns("نص", "نصف") + DialectLexicon.words(DialectLexicon.Intent.HALF) }
+    private val accountWords = ns("حساب", "حسابه", "حسابها", "الحساب")
+    private val namePreps = ns("على", "علي", "من", "ل", "لـ", "باسم", "عند", "الى")
+    private val baWords = ns("ب", "بـ", "بمبلغ", "بقيمه", "بسعر")
+    private val pronounRefs = ns("عليه", "عليها", "له", "لها", "منه", "منها", "حسابه", "حسابها", "كشفه", "كشفها", "رصيده", "رصيدها")
+    private val writeVerbs = ns("سجل", "سجلي", "سجله", "قيد", "قيدي", "قيده", "اكتب", "اكتبي", "اكتبه", "حط", "حطه", "ضيف", "اضف", "زيد")
+
+    /** Where the name is in [w] and what it resolved to, plus where a «بـ» amount starts (-1 = none). */
+    private class Names(val hit: NameSpan.Hit?, val baStart: Int, val itemLike: (Int) -> Boolean)
+
+    private fun names(w: List<String>, customers: List<Customer>, amount: AmountHit?, blocked: Set<Int>, payment: Boolean, extraNot: Set<String> = emptySet()): Names {
+        fun base(i: Int): Boolean {
+            if (i in blocked) return false
+            val t = w[i]
+            return t !in stop && t !in debtVerbs && t !in paymentVerbs && t !in createVerbs && t !in payNouns && t !in notName && t !in printVerbs &&
+                t !in extraNot && t !in customerNouns && t !in undoWords && t !in statementNouns && t !in halfWords && t !in fullWords && !Regex("[0-9.,]+").matches(t) && !ArabicNumbers.looksLikePhone(t)
+        }
+        val b = BooleanArray(w.size) { base(it) }
+        // «محمد علي»: «علي» right after a name word is the name, not «على»
+        for (i in 1 until w.size) if (w[i] == "علي" && b[i - 1] && i !in blocked && (i + 1 >= w.size || b[i + 1] || (i + 1) in blocked)) b[i] = true
+        // «سجل على علي أحمد»: «علي» right after the preposition and before a name word is the name
+        for (i in 1 until w.size - 1) if (w[i] == "علي" && w[i - 1] in namePreps && !b[i - 1] && b[i + 1] && i !in blocked) b[i] = true
+        val runs = NameSpan.runs(w.size) { b[it] }
+        val baStart = when {
+            amount == null -> -1
+            amount.start > 0 && w[amount.start - 1] in baWords -> amount.start - 1
+            w[amount.start].length > 2 && w[amount.start][0] == 'ب' && !w[amount.start][1].isDigit() -> amount.start
+            else -> -1
+        }
+        val byPrep = runs.firstOrNull { r -> r.first > 0 && w[r.first - 1] in namePreps }
+        val before = runs.firstOrNull { r -> amount == null || r.last < amount.start }
+        val run = byPrep ?: before ?: (if (payment) runs.firstOrNull() else null)
+        val hit = run?.let { r -> NameSpan.resolve(w, r, customers, baForm = baStart >= 0 && r.last + 1 == baStart) }
+        val itemLike = { i: Int -> i !in blocked && w[i] !in stop && w[i] !in debtVerbs && w[i] !in createVerbs && w[i] !in notName && w[i] !in printVerbs && w[i] !in statementNouns && !ArabicNumbers.looksLikePhone(w[i]) }
+        return Names(hit, baStart, itemLike)
+    }
+
+    /** The customer a command is about (for [ChatMemory]); null when none was resolved. */
+    fun mentioned(c: Command): Customer? = when (c) {
+        is Command.AddDebt -> (c.who as? NameMatch.Found)?.c
+        is Command.AddPayment -> (c.who as? NameMatch.Found)?.c
+        is Command.Balance -> (c.who as? NameMatch.Found)?.c
+        is Command.Statement -> (c.who as? NameMatch.Found)?.c
+        is Command.Reminder -> (c.who as? NameMatch.Found)?.c
+        else -> null
+    }
+
+    /**
+     * [last] = the customer the chat was last about («سجل عليه» / «كشفه» / a bare «سدد كامل» mean him);
+     * [pending] = the assistant just asked «كم المبلغ؟» for him, so a bare amount answers it.
+     */
+    fun parse(text: String, customers: List<Customer>, today: LocalDate, now: LocalDateTime = LocalDateTime.now(), last: Customer? = null, pending: ChatMemory.Pending? = null): Command {
         val w = ArabicText.words(text)
         if (w.isEmpty()) return Command.Unknown
         val has = { set: Set<String> -> w.any { it in set } }
         val joined = " " + w.joinToString(" ") + " "
+        val lastHit: NameMatch? = last?.let { NameMatch.Found(it, -1, -1) }
         // «حوالة رقم 123456 (الكريمي)» / «جوالي رقم 778899»: the transfer / transaction number is not an amount
         val skipNum = HashSet<Int>()
         val pay = payMethod(w)
@@ -288,6 +379,7 @@ object Nlu {
         val company = pay.company
         val amounts = ArabicNumbers.find(w).filter { h -> (h.start until h.end).none { it in skipNum } }
         val date = when { w.contains("امس") || w.contains("البارحه") -> today.minusDays(1); else -> today }
+        val amountAll = amounts.flatMap { h -> (h.start until h.end + (if (h.currency != null) 2 else 0)).toList() }.toSet()
 
         // ---- undo
         if (has(undoWords) || Regex(" (الغ|الغي|امسح|احذف|رجع|ارجع|شيل|كنسل) (اخر|اخرعمليه)").containsMatchIn(joined) ||
@@ -301,6 +393,13 @@ object Nlu {
 
         // ---- help
         if (w.size <= 4 && (has(ns("مساعده", "ساعدني", "تقدر", "اوامر")) || joined.contains(" ايش تسوي ") || joined.contains(" وش تسوي "))) return Command.Help
+
+        // ---- 1.1.8 statement: «طلع / نزل / اطبع / خرج لي كشف (محمد)» — the name said, else the last customer of the chat
+        if ((has(statementNouns) || (has(printVerbs) && has(accountWords))) && amounts.isEmpty() && !has(paymentVerbs)) {
+            val n = names(w, customers, null, skipNum, payment = false, extraNot = accountWords)
+            val who = n.hit?.match ?: NameMatcher.match(w, customers, skipNum) ?: lastHit
+            return Command.Statement(who, pdf = has(printVerbs))
+        }
 
         // ---- create customer
         val ci = w.indexOfFirst { it in customerNouns }
@@ -316,45 +415,74 @@ object Nlu {
 
         val amount = pickAmount(amounts)
         val amountIdx = amount?.let { (it.start until it.end + (if (it.currency != null) 2 else 0)).toSet() }.orEmpty()
+        val blocked = amountAll + skipNum
+        // the old whole-sentence matcher, as a fallback, never on words that cannot be a name («على الحساب» is not «علي أحمد»)
+        val nonName = w.indices.filter { w[it] in stop || w[it] in notName || w[it] in debtVerbs || w[it] in paymentVerbs }.toSet()
 
-        // ---- payment
+        // ---- payment (1.1.8: «سدد الي عليه كامل / كاملاً» = his whole balance)
         val receivedFrom = Regex(" (اخذت|خذيت|استلمت|قبضت|حصلت) من ").containsMatchIn(joined)
-        val payVerb = w.any { it in paymentVerbs && it !in ns("اخذت", "خذيت", "استلمت", "قبضت", "حصلت") } || receivedFrom || has(payNouns)
-        if (payVerb && (amount != null || has(ns("سدد", "دفع", "سلم")))) {
-            val skip = amountIdx + skipNum
-            val who = NameMatcher.match(w, customers, skip) ?: NameMatch.NotFound(guessName(w, skip, paymentVerbs))
-            return Command.AddPayment(who, amount, "", date, pay.method, transferNo, company, pay.phone)
+        val clearAccount = Regex(" (صفي|صفا|صفاه) (حسابه|حسابها|الحساب|اللي|الي) ").containsMatchIn(joined)
+        val payVerb = w.any { it in paymentVerbs && it !in ns("اخذت", "خذيت", "استلمت", "قبضت", "حصلت") } || receivedFrom || has(payNouns) || clearAccount
+        val full = amount == null && (has(fullWords) || clearAccount || DialectLexicon.says(DialectLexicon.Intent.FULL, w) ||
+            Regex(" (الي|اللي|الذي|كل) (عليه|عليها|عليهم|حقه|حقها) ").containsMatchIn(joined))
+        // «دفع نصه / نص اللي عليه»: half of his balance
+        val half = amount == null && !full && has(halfWords)
+        if (payVerb && (amount != null || full || half || has(ns("سدد", "دفع", "سلم")))) {
+            val n = names(w, customers, amount, blocked, payment = true)
+            val who = n.hit?.match ?: NameMatcher.match(w, customers, amountIdx + skipNum + nonName) ?: lastHit ?: NameMatch.NotFound("")
+            return Command.AddPayment(who, amount, "", date, pay.method, transferNo, company, pay.phone, full = full, half = half)
         }
 
-        // ---- debt
+        // ---- debt: the whole name up to the amount / verb; items with «بـ» or after the amount
         val debtVerb = has(debtVerbs)
-        if (amount != null && (debtVerb || NameMatcher.match(w, customers, amountIdx) != null) && !isQuestion(w)) {
-            val who = NameMatcher.match(w, customers, amountIdx) ?: NameMatch.NotFound(guessName(w, amountIdx, debtVerbs))
-            val used = HashSet(amountIdx)
-            if (who is NameMatch.Found) used += (who.start until who.end)
-            if (who is NameMatch.Ambiguous) used += (who.start until who.end)
-            if (who is NameMatch.NotFound) w.forEachIndexed { i, t -> if (ArabicText.variants(t).any { it == who.guess } || t == who.guess) used += i }
-            val items = w.filterIndexed { i, t -> i !in used && t !in debtVerbs && t !in stop && t !in createVerbs && !ArabicNumbers.looksLikePhone(t) }
-                .joinToString(" ").replace(Regex("^و "), "").trim()
+        val n = names(w, customers, amount, blocked, payment = false)
+        if (amount != null && (debtVerb || n.hit?.match is NameMatch.Found || NameMatcher.match(w, customers, amountIdx) != null) && !isQuestion(w)) {
+            val hit = n.hit
+            val who: NameMatch? = hit?.match ?: NameMatcher.match(w, customers, amountIdx + nonName) ?: lastHit
+            val nameIdx = when {
+                hit != null -> (hit.run.first until hit.nameEnd).toSet()
+                who is NameMatch.Found && who.start >= 0 -> (who.start until who.end).toSet()
+                who is NameMatch.Ambiguous -> (who.start until who.end).toSet()
+                else -> emptySet()
+            }
+            val items = w.indices.filter { i ->
+                i !in nameIdx && i !in amountIdx && n.itemLike(i) &&
+                    (i >= amount.end || (n.baStart >= 0 && i < n.baStart && (hit == null || i >= hit.run.first)))
+            }.map { w[it] }.joinToString(" ").replace(Regex("^و "), "").trim()
             return Command.AddDebt(who, amount, items, date)
         }
 
-        // ---- statement / balance
-        val who = NameMatcher.match(w, customers)
+        // ---- «سجل عليه» with no amount: a debt on the last customer (the assistant asks how much); nobody yet → «على من؟»
+        if (amount == null && has(writeVerbs) && has(pronounRefs) && n.hit == null && !isQuestion(w)) return Command.AddDebt(lastHit, null, "", date)
+
+        // ---- a bare amount right after «كم المبلغ؟»
+        if (pending != null && amount != null && n.hit == null && !has(debtVerbs) && !has(paymentVerbs)) {
+            val pc = customers.firstOrNull { it.id == pending.customerId }
+            if (pc != null) {
+                val who = NameMatch.Found(pc, -1, -1)
+                return if (pending.payment) Command.AddPayment(who, amount, "", date) else Command.AddDebt(who, amount, "", date)
+            }
+        }
+
+        // ---- statement / balance («كم عليه؟» / «حسابه كم؟» = the last customer; «مين أكثر واحد عليه؟» is the top list)
+        val topAsk = has(ns("اكثر", "الاكثر", "اعلى", "اكبر", "المديونين", "المتاخرين", "متاخرين", "اكثرهم", "المتاخر"))
+        val pronounAsk = n.hit == null && !topAsk && has(pronounRefs)
+        val who = NameMatcher.match(w, customers) ?: (if (pronounAsk) lastHit else null)
+        if (who == null && pronounAsk && isQuestion(w) || who == null && pronounAsk && DialectLexicon.says(DialectLexicon.Intent.BALANCE, w)) return Command.Balance(null)
         if (w.any { it == "كشف" || it == "كشفه" || it == "تفاصيل" || it == "حركات" || it == "عمليات" } && who != null) return Command.Statement(who)
         val balanceAsk = has(ns("كم", "قديش", "كام", "رصيد", "رصيده", "باقي", "متبقي", "حساب", "حسابه", "عليه", "بقي"))
         if (who != null && (balanceAsk || w.size <= 3)) return Command.Balance(who)
 
         // ---- top debtors
         if (has(ns("اكثر", "الاكثر", "اعلى", "اكبر", "المديونين", "المتاخرين", "متاخرين", "اكثرهم", "المتاخر"))) {
-            val n = amounts.firstOrNull()?.value?.toInt()?.coerceIn(1, 50) ?: 10
-            return Command.TopDebtors(n)
+            val n2 = amounts.firstOrNull()?.value?.toInt()?.coerceIn(1, 50) ?: 10
+            return Command.TopDebtors(n2)
         }
         // ---- today
         if (w.contains("اليوم") && has(ns("تحصيل", "حصلت", "حصلنا", "دخل", "جمعت", "جمعنا", "سددوا", "مجموع", "اجمالي", "كم", "عمليات", "ملخص", "حركه", "ديون", "مبيعات"))) return Command.Today
         if (has(ns("اجمالي", "مجموع")) || joined.contains(" كم الديون ") || joined.contains(" كم عليهم ") || joined.contains(" كم لي ")) return Command.TotalOwed
         if (who != null && amount == null) return Command.Balance(who)
-        if (amount != null && debtVerb) return Command.AddDebt(null, amount, "", date)
+        if (amount != null && debtVerb) return Command.AddDebt(lastHit, amount, "", date)
         return Command.Unknown
     }
 

@@ -1,3 +1,9 @@
+/*
+ * دفتري · MainActivity.kt
+ * الشاشة الرئيسية والتنقل بين الشاشات والنوافذ المنبثقة (المبلغ، الصوت، الاختيار السريع).
+ * Navigation host and sheets. 1.1.8: «طلع لي كشف» (chat or mic) opens the customer's statement screen; the home mic passes
+ * the last customer for «سجل عليه» and fills «سدد الي عليه كامل» with the whole balance.
+ */
 package com.daftari.app
 
 import android.Manifest
@@ -327,6 +333,9 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
         if (Build.VERSION.SDK_INT >= 33) act.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
     }
     LaunchedEffect(openParty.value) { openParty.value?.let { push(Route.Details(it)); openParty.value = null } }
+    // 1.1.8 «طلع / نزل / اطبع / خرج لي كشف» in «اسأل مدين»: open that customer's statement screen (PDF: open / share / WhatsApp)
+    val stmtReq by vm.statementRequest.collectAsState()
+    LaunchedEffect(stmtReq) { stmtReq?.let { id -> vm.statementRequest.value = null; if (vm.dashboard.value?.summaries?.any { it.party.id == id } == true) push(Route.ReportOf("PARTY", id)) } }
     BackHandler(stack.isNotEmpty() || money != null || tab != 0 || gate != null || restoreAsk != null || exportSheet || voiceDraft != null || quickPick != null) {
         when {
             gate != null -> gate = null
@@ -636,7 +645,15 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                     listOf(com.daftari.app.voice.VoiceCustomer(ps.party.id, ps.party.title)) +
                         listOfNotNull(com.daftari.app.voice.VoiceCustomer(ps.party.id, ps.party.name).takeIf { ps.party.name.isNotBlank() && ps.party.name != ps.party.title })
                 }
-                voiceDraft = com.daftari.app.voice.VoiceEntryParser.parse(text, book)
+                // 1.1.8: «سجل عليه 500» / «طلع لي كشف» with no name = the customer the chat / mic was last about
+                val d = com.daftari.app.voice.VoiceEntryParser.parse(text, book, last = book.firstOrNull { it.id == vm.lastPartyId() })
+                d.customer?.takeIf { d.customerSure }?.let { vm.noteParty(it.id) }
+                if (d.statement) {
+                    // «طلع / نزل / اطبع / خرج لي كشف (فلان)»: the statement screen (PDF: open / share / WhatsApp)
+                    val id = d.customer?.id ?: d.options.singleOrNull()?.id
+                    if (id != null) { vm.noteParty(id); push(Route.ReportOf("PARTY", id)) }
+                    else vm.say(if (d.newName.isNotBlank()) "لم أجد «${d.newName}» في دفترك" else "كشف من؟ قل مثلاً: طلع لي كشف محمد")
+                } else voiceDraft = d
             },
             onDismiss = { voiceListen = false },
         )
@@ -645,7 +662,15 @@ private fun MainShell(vm: AppViewModel, s: AppSettings, act: FragmentActivity, o
                 Box(Modifier.clickable(enabled = false) {}) {
                     com.daftari.app.voice.VoiceReviewSheet(
                         d, landlord, s.currency, titleOf = { id -> summaryOf(id)?.party?.title },
-                        onContinue = { id, debt -> prefill = com.daftari.app.voice.VoicePrefill.of(d).encode(); voiceDraft = null; money = id to debt },
+                        onContinue = { id, debt ->
+                            vm.noteParty(id)
+                            // 1.1.8 «سدد الي عليه كامل»: the sheet opens with his whole current balance
+                            val bal = summaryOf(id)?.balance ?: 0L
+                            val pf = com.daftari.app.voice.VoicePrefill.of(d).let { p ->
+                                if (d.fullBalance && !debt && p.amount.isBlank() && bal > 0) p.copy(amount = java.math.BigDecimal.valueOf(bal).movePointLeft(2).stripTrailingZeros().toPlainString()) else p
+                            }
+                            prefill = pf.encode(); voiceDraft = null; money = id to debt
+                        },
                         onNewCustomer = { name, debt ->
                             if (landlord) { picked = name to ""; voiceDraft = null; push(Route.Edit(null)) }
                             else if (vm.gate(Plan.Feature.UNLIMITED, summaries.size, paywall)) {

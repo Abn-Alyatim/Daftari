@@ -55,7 +55,7 @@ describe("startup without a ready database", () => {
     await new Promise((r) => setTimeout(r, 20));
     const h = await app.inject({ url: "/health" });
     expect(h.statusCode).toBe(200);
-    expect(h.json()).toMatchObject({ ok: true, version: "1.2.1", db: "postgres", dbReady: false, dbError: "unreachable" });
+    expect(h.json()).toMatchObject({ ok: true, version: "1.2.2", db: "postgres", dbReady: false, dbError: "unreachable" });
     expect((await app.inject({ url: "/api/v1/info" })).statusCode).toBe(200);
     db.waitReady = async () => false; // skip the 10 s wait in the test
     const r = await app.inject({ url: "/api/v1/subscription/config" });

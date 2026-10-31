@@ -77,6 +77,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     geminiModel: env.GEMINI_MODEL ?? "gemini-2.0-flash",
     chatDailyLimit: Number(env.CHAT_DAILY_LIMIT ?? 60),
     anonDailyLimit: Number(env.ANON_DAILY_LIMIT ?? 15),
-    version: "1.2.1",
+    version: "1.2.2",
   };
 }

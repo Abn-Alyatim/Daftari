@@ -4,6 +4,7 @@
  * Review step for the home-screen mic: shows what the sentence was understood as and lets the user fix the customer and
  * the kind with one tap. «متابعة» opens the normal money sheet pre-filled — the user still reviews and taps «حفظ» there.
  * Nothing is saved from this screen (a new customer is only added when the user taps that button explicitly).
+ * 1.1.8: says when the customer came from the chat's memory («سجل عليه») and when the amount is «كامل الرصيد».
  */
 package com.daftari.app.voice
 
@@ -93,6 +94,7 @@ fun VoiceReviewSheet(
         T(if (landlord) "الحساب" else "الزبون", 11.5.sp, FontWeight.Medium, c.muted)
         Spacer(Modifier.height(6.dp))
         val suggested = draft.customer?.takeIf { !draft.customerSure }
+        if (draft.fromContext) T("لم تذكر اسماً، فاخترتُ آخر زبون تحدثنا عنه:", 12.sp, color = c.muted, modifier = Modifier.padding(bottom = 6.dp))
         if (suggested != null) T("هل تقصد «${titleOf(suggested.id) ?: suggested.name}»؟", 12.5.sp, FontWeight.SemiBold, modifier = Modifier.padding(bottom = 6.dp))
         if (draft.options.isNotEmpty()) T("وجدتُ أكثر من حساب بهذا الاسم، فاختر الصحيح:", 12.sp, color = c.muted, modifier = Modifier.padding(bottom = 6.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -111,7 +113,9 @@ fun VoiceReviewSheet(
             val minor = runCatching { a.movePointRight(2).toLong() }.getOrNull()
             if (minor == null) null else "المبلغ: ${Money.number(minor)} ${(cur ?: defaultCurrency).labelAr}" + if (cur == null) " (عملة الحساب)" else ""
         }
-        T(amountLine ?: "لم أفهم المبلغ؛ ستكتبه في الخطوة التالية.", 13.sp, FontWeight.SemiBold, if (amountLine == null) c.warn else c.text)
+        // 1.1.8 «سدد الي عليه كامل»: the next sheet opens with his whole balance
+        val fullLine = if (amountLine == null && draft.fullBalance) "المبلغ: كامل رصيده الحالي (يُعبّأ في الخطوة التالية)" else null
+        T(amountLine ?: fullLine ?: "لم أفهم المبلغ؛ ستكتبه في الخطوة التالية.", 13.sp, FontWeight.SemiBold, if (amountLine == null && fullLine == null) c.warn else c.text)
         if (draft.note.isNotBlank()) T("ملاحظة: ${draft.note}", 12.5.sp, color = c.muted, modifier = Modifier.padding(top = 4.dp))
 
         Spacer(Modifier.height(16.dp))

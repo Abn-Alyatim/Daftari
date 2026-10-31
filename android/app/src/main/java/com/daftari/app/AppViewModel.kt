@@ -1,3 +1,10 @@
+/*
+ * دفتري · AppViewModel.kt
+ * حالة التطبيق ومنطقه: الدفتر، الحساب، النسخ الاحتياطي، التصدير، ومحادثة «مدين».
+ * The app's single view model. 1.1.8: the chat's memory ([com.daftari.app.chat.ChatMemory] — the customer «سجل عليه» /
+ * «طلع لي كشف» mean), the statement-PDF request from the chat, the voice hint's customer names, and the online-voice
+ * retry when /api/v1/info says voiceReady.
+ */
 package com.daftari.app
 
 import android.app.Application
@@ -76,6 +83,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val unlocked = MutableStateFlow(false)
 
     init {
+        // 1.1.8: the voice hint's customer names (top 50 by latest entry), kept fresh as the book changes
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(dashboard, repo.entries) { d, es -> d to es }.collect { (d, es) ->
+                if (d == null) return@collect
+                val last = HashMap<Long, Long>()
+                es.forEach { e -> val v = e.date.toEpochDay() * 1_000_000 + e.id; if (v > (last[e.partyId] ?: Long.MIN_VALUE)) last[e.partyId] = v }
+                com.daftari.app.voice.VoiceHint.names = com.daftari.app.voice.VoiceHint.byRecent(d.summaries.associate { it.party.id to it.party.name }, last)
+            }
+        }
         refreshServerInfo()
         if (g.workspaces.consumeGrant(android.os.SystemClock.elapsedRealtime())) unlocked.value = true
         viewModelScope.launch {
@@ -89,6 +105,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshServerInfo() = viewModelScope.launch {
         serverInfo.value = runCatching { g.api.info() }.getOrNull()
+        // 1.1.8: a server that now has its Groq key → the mic tries online again at once (no app restart)
+        serverInfo.value?.let { com.daftari.app.voice.VoicePrefs.serverSaysReady(it.voiceReady) }
     }
 
     fun say(m: String) { toast.value = m }
@@ -325,8 +343,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun offlineCtx(): com.daftari.app.chat.OfflineAssistant.Ctx {
         val d = dashboard.first { it != null }!!
         val st = s()
-        return com.daftari.app.chat.OfflineAssistant.Ctx(d, repo.allEntries(), st.role, st.currency, st.rates, LocalDate.now(), g.audit.last(), chatBackup.value?.second)
+        return com.daftari.app.chat.OfflineAssistant.Ctx(d, repo.allEntries(), st.role, st.currency, st.rates, LocalDate.now(), g.audit.last(), chatBackup.value?.second,
+            last = chatMemory.last(com.daftari.app.chat.OfflineAssistant.customers(d)), pending = chatMemory.pending)
     }
+
+    // ---------- 1.1.8: the chat's memory — the customer it was last about («سجل عليه», «طلع لي كشف») ----------
+    private val chatMemory = com.daftari.app.chat.ChatMemory()
+    /** «طلع / اطبع لي كشف»: the customer whose statement (PDF) screen the app opens now; the screen resets it to null. */
+    val statementRequest = MutableStateFlow<Long?>(null)
+
+    private fun remember(m: ChatMessage) {
+        if (m.askAmountPayment != null && m.about > 0) { chatMemory.ask(m.about, m.askAmountPayment); return }
+        chatMemory.answered()
+        chatMemory.note(m.about)
+        m.action?.partyId?.let { chatMemory.note(it) }
+        if (m.openStatement > 0) statementRequest.value = m.openStatement
+    }
+
+    /** The customer the chat / the mic was last about (0 = none) — the home mic's «سجل عليه». */
+    fun lastPartyId(): Long = chatMemory.lastId
+    fun noteParty(id: Long) = chatMemory.note(id)
 
     fun ask(q: String) {
         val question = q.trim()
@@ -349,15 +385,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 LocalAnswers.answer(question, x.d, st.role, st.currency, today) ?: ChatMessage(false, "لم أفهم الطلب 🤔\n" + com.daftari.app.chat.OfflineAssistant.HELP)
             }
             chat.value = chat.value + reply
+            remember(reply)
             chatBusy.value = false
         }
     }
 
-    fun clearChat() { chat.value = emptyList(); chatBackup.value = null }
+    fun clearChat() { chat.value = emptyList(); chatBackup.value = null; chatMemory.clear() }
 
     /** «أي محمد تقصد؟» → the picked customer's confirmation card (or answer). */
     fun pickChoice(msgId: Long, a: ChatAction) = viewModelScope.launch {
         chat.value = chat.value.map { if (it.id == msgId) it.copy(choices = emptyList()) else it }
+        chatMemory.note(a.partyId)
         val x = offlineCtx()
         val s0 = x.d.summaries.firstOrNull { it.party.id == a.partyId }
         val msg = when (a.type) {
@@ -366,6 +404,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             else -> ChatMessage(false, "تأكّد قبل التسجيل 👇", action = a)
         } ?: ChatMessage(false, "لم أجد الحساب")
         chat.value = chat.value + msg
+        remember(msg)
     }
 
     /** Runs a change the assistant proposed, after the user confirmed its card. */
@@ -383,6 +422,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         val landlord = st.role == Role.LANDLORD
                         pid = repo.saveParty(Party(kind = if (landlord) PartyKind.SHOP else PartyKind.CUSTOMER, name = a.name.ifBlank { a.party }, currency = st.currency.code), via)
                     }
+                    chatMemory.note(pid)
                     val pay = a.type.endsWith("payment")
                     if (pay && (a.method == "transfer" || a.method == "wallet") && a.transferNo.isNotBlank()) repo.entryByTransfer(a.transferNo)?.let { dup ->
                         chat.value = chat.value + ChatMessage(false, "⚠️ تنبيه: ${if (a.method == "wallet") "رقم العملية" else "رقم الحوالة"} ${a.transferNo} مسجّل من قبل (${Money.number(dup.amount)} بتاريخ ${Dates.short(dup.date)}). سجّلتُها على أي حال، ويمكنك التراجع بكلمة «تراجع».")

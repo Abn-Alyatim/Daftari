@@ -11,6 +11,7 @@ namespace daftari {
     /** Loads the model at [path]; returns an opaque handle, or nullptr when the file is not a valid model. */
     void *load(const char *path);
     /** Transcribes [n] samples (16 kHz mono, -1..1) in [lang] with [threads] CPU threads; "" when nothing was heard. */
-    std::string transcribe(void *handle, const float *pcm, int n, const char *lang, int threads);
+    /** 1.1.8: [prompt] (UTF-8, may be null / empty) is whisper's initial_prompt — customer names and the shop's phrases. */
+    std::string transcribe(void *handle, const float *pcm, int n, const char *lang, int threads, const char *prompt = nullptr);
     void free_model(void *handle);
 }

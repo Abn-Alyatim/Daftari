@@ -30,6 +30,11 @@
 
 **لم يُتحقّق منه بعد:** السرعة والدقة على جوال حقيقي (لهجة يمنية، ضجيج المحل)، والتسجيل بـ`AudioRecord` على Samsung، وتنزيل 57 م.ب عبر شبكات اليمن، ونسخة armeabi-v7a على جوال قديم.
 
+## 1.1.8 — التلميح وإعادة المحاولة وعبارات المحل
+- **التلميح:** قبل التعرّف يُبنى نص قصير: عبارات المحل أولاً («سجل عليه»، «سدد الي عليه كامل»، «اخذ بـ»، «طلع/نزل/اطبع/خرج لي كشف»، الأرقام والعملات) ثم أسماء أكثر 50 زبوناً نشاطاً. يذهب للخادم في `?prompt=` (≤400 حرف، الخادم 1.2.2 يمرّره لـ Groq Whisper)، وأقصر منه (≤220 حرفاً، 20 اسماً) للنموذج دون إنترنت كـ `initial_prompt`. خادم قديم يتجاهله؛ وتطبيق قديم لا يرسله.
+- **إعادة المحاولة:** 1.1.7 كان يتوقف عن الإنترنت بقية الجلسة بعد أول «voice_disabled» أو 404. الآن يتوقف دقيقة واحدة فقط، ويعود فوراً حين يقول `/api/v1/info` إن `voiceReady: true`.
+- **لم يُتحقّق منه على جهاز حقيقي:** أثر التلميح على دقة النموذج الصغير، واحتمال أن يكرر النموذج الصغير نص التلميح عند تسجيل شبه صامت.
+
 ## English
 
 **Why 1.1.7 changed:** 1.1.6 used the phone's Google recognizer. On the owner's Galaxy A53 Google offered no offline Arabic pack, online recognition did not work either, and the assistant chat had no mic at all. The 1.1.6 code had its own faults too: it forced `EXTRA_PREFER_OFFLINE` on every attempt, stopped (instead of moving on) on NO_MATCH / INSUFFICIENT_PERMISSIONS / AUDIO / BUSY, and always ended at «download the Arabic pack». Which of these actually hit his phone is unknown, because no error screenshot was received. **The owner then chose to drop Google entirely.** Voice now runs only on our own offline Whisper model.
@@ -49,3 +54,9 @@
 **Tests:** `Features117Test` (mic decision, engine order online/offline, download resume / sha / cancel / range-ignored / no network with a fake source, end of speech, chat auto-send on/off, parsing of the real whisper outputs, catalog, version) and `Shots117Test` (mic in the debt sheet, the payment sheet and the chat input, found by its accessibility label; download offer; progress; failure; settings). Parser tests unchanged.
 
 **Unverified:** speed and accuracy on a real phone (Yemeni dialect, shop noise), `AudioRecord` on Samsung, the 57 MB download over Yemeni networks, the armeabi-v7a build on an old phone.
+
+## 1.1.8 — hint, retry, shop phrases
+- **Hint:** the shop's phrases first, then the 50 most recently active customer names. Sent to the server as `?prompt=` (≤400 chars; server 1.2.2 forwards it as Groq Whisper's `prompt`), and a shorter one (≤220 chars, 20 names) to whisper.cpp as `initial_prompt`. Old servers ignore it, and old apps don't send it.
+- **Retry:** 1.1.7 disabled online voice for the session after one `voice_disabled`/404. Now it skips online for 60 s only, and comes back at once when `/api/v1/info` says `voiceReady: true`.
+- **Unverified on a real phone:** how much the hint helps the small offline model, and whether that model echoes the hint on a near-silent take.
+

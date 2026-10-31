@@ -233,5 +233,6 @@ class Features117Test {
         assertTrue(Wav.encode(ShortArray(16_000 * 15)).size < 1024 * 1024) // a full 15 s take fits the server's 1 MB
     }
 
-    @Test fun versionIs117() { assertEquals(10, BuildConfig.VERSION_CODE); assertEquals("1.1.7", BuildConfig.VERSION_NAME) }
+    // 1.1.8 moved the exact version pin to Features118Test.versionIs118; 1.1.7 (code 10) or later here
+    @Test fun versionIs117() { assertTrue(BuildConfig.VERSION_CODE >= 10) }
 }

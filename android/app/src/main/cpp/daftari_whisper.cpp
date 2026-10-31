@@ -5,6 +5,7 @@
  * (Arabic). The encoder window (audio_ctx) is cut to the spoken length (+ margin) instead of the full 30 s, which makes a
  * 3–10 s phrase several times faster on a phone (measured 5× on the computer, same text); blank-audio / bracket markers
  * are stripped, tokens are capped and a back-to-back repeated sentence (a looping small model) is kept once.
+ * 1.1.8: an optional initial_prompt (customer names + the shop's phrases) so names and «سجل عليه» are spelled right.
  */
 #include "daftari_whisper.h"
 #include "whisper.h"
@@ -50,7 +51,7 @@ static std::string clean(std::string s) {
     return a == std::string::npos ? std::string() : out.substr(a, b - a + 1);
 }
 
-std::string transcribe(void *handle, const float *pcm, int n, const char *lang, int threads) {
+std::string transcribe(void *handle, const float *pcm, int n, const char *lang, int threads, const char *prompt) {
     auto *ctx = static_cast<whisper_context *>(handle);
     if (!ctx || !pcm || n <= 0) return "";
     whisper_full_params p = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
@@ -68,6 +69,8 @@ std::string transcribe(void *handle, const float *pcm, int n, const char *lang, 
     p.suppress_blank = true;
     p.temperature_inc = 0.0f; // no slow fallback passes
     p.max_tokens = 128;       // a 15 s sentence never needs more; stops a looping small model early
+    // 1.1.8: the hint (names + phrases) primes the spelling; whisper keeps at most half its text context of it
+    if (prompt && *prompt) p.initial_prompt = prompt;
     // encoder window: 50 frames per second of audio (1500 = 30 s), plus a margin; whisper needs a reasonable minimum
     const double seconds = double(n) / WHISPER_SAMPLE_RATE;
     p.audio_ctx = std::min(1500, std::max(384, int(std::ceil(seconds * 50.0)) + 128));

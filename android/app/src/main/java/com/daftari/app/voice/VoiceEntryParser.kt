@@ -11,7 +11,11 @@
  *   «سدد خالد ثلاثة آلاف»               → سداد، خالد، 3000
  *   «أخذ مني عبدالله مية دولار»          → دين، عبدالله، 100، USD
  * A bare «ريال» leaves the currency empty (the account's own currency is used): only «سعودي / يمني / دولار» set it.
- * Unit-tested in VoiceEntryParserTest (no Android needed).
+ * 1.1.8: the name is the whole run of name words (up to 5) and a customer whose full name starts it wins («محمد اليتيم وسط
+ * العلي» → «محمد اليتيم»); Madyan's phrases — «سجل عليه (500)» with no name = [last] (the customer the chat / mic was last
+ * about), «سدد الي عليه كامل/كاملاً» = [VoiceDraft.fullBalance], «اخذ بـ500 رز» = debt 500 + «رز», «طلع / نزل / اطبع /
+ * خرج لي كشف (فلان)» = [VoiceDraft.statement].
+ * Unit-tested in VoiceEntryParserTest and Features118Test (no Android needed).
  */
 package com.daftari.app.voice
 
@@ -41,17 +45,24 @@ data class VoiceDraft(
     val options: List<VoiceCustomer> = emptyList(),
     val newName: String = "",
     val note: String = "",
+    /** 1.1.8 «طلع / نزل / اطبع / خرج لي كشف»: open the customer's statement, not a money entry */
+    val statement: Boolean = false,
+    /** 1.1.8 «سدد الي عليه كامل»: the amount is the customer's whole balance (filled in by the app, not by the parser) */
+    val fullBalance: Boolean = false,
+    /** 1.1.8 no name was said («سجل عليه 500»): [customer] is the last customer of the chat / mic */
+    val fromContext: Boolean = false,
 ) {
     /** The amount as the sheet's amount field wants it («2500», «1500.5»), or "" when none was understood. */
     val amountText: String get() = amount?.stripTrailingZeros()?.toPlainString().orEmpty()
-    val isEmpty: Boolean get() = kind == null && amount == null && customer == null && options.isEmpty() && newName.isBlank() && note.isBlank()
+    val isEmpty: Boolean get() = kind == null && amount == null && customer == null && options.isEmpty() && newName.isBlank() && note.isBlank() && !statement
 }
 
 object VoiceEntryParser {
     private fun ns(vararg w: String): Set<String> = w.map { ArabicText.normalize(it) }.toSet()
 
     /** «سدد / دفع / عطاني …»: money came in. */
-    private val payVerbs = ns(
+    private val payVerbs: Set<String> by lazy { payVerbs0 + com.daftari.app.chat.DialectLexicon.words(com.daftari.app.chat.DialectLexicon.Intent.PAYMENT) }
+    private val payVerbs0 = ns(
         "سدد", "سددت", "سدده", "سددها", "سددلي", "سددنا", "يسدد", "تسديد", "سداد", "دفع", "دفعت", "دفعه", "دفعها", "دفعلي", "دفعوا", "دفعو", "يدفع",
         "سلم", "سلمني", "سلملي", "سلمنا", "رجع", "رجعلي", "ارجع", "رد", "ردلي", "قضى", "قضا", "قضالي", "ورد", "وصل", "وصلني", "وصلنا", "واصل",
         "عطاني", "اعطاني", "اداني", "حول", "حولي", "حوللي", "حولنا", "جاب", "جابلي", "قسط", "دفعة", "سدد له",
@@ -59,14 +70,16 @@ object VoiceEntryParser {
     /** «أخذتُ / استلمتُ / قبضتُ» + «من / منه»: money came in. */
     private val receivedVerbs = ns("اخذت", "خذيت", "استلمت", "قبضت", "حصلت", "تسلمت", "استلمنا", "قبضنا", "اخذنا")
     /** «عليه / دين / اشترى / استلف …»: a new debt. */
-    private val debtVerbs = ns(
+    // the lexicon's lead words that are names («علي») or «write it» verbs here stay out of the debt set
+    private val debtVerbs: Set<String> by lazy { debtVerbs0 + (com.daftari.app.chat.DialectLexicon.words(com.daftari.app.chat.DialectLexicon.Intent.DEBT) - ns("علي", "على", "سجل", "قيد", "اكتب", "حطه", "خليه", "خلي")) }
+    private val debtVerbs0 = ns(
         "عليه", "عليها", "عليهم", "دين", "دينه", "ديون", "مديون", "بالدين", "اجل", "بالاجل", "استلف", "تسلف", "سلف", "سلفت", "سلفه", "سلفته", "تدين", "داين", "اداين",
         "اشترى", "اشتري", "شرى", "شل", "شال", "اعطيت", "عطيت", "اعطيته", "عطيته", "اديت", "اديته", "قرضته", "اقرضته", "اقترض", "تقرض", "سجل عليه",
     )
     /** «أخذ / خذ» (he took) — a debt; «أخذتُ» is in [receivedVerbs]. */
-    private val tookVerbs = ns("اخذ", "خذ", "ياخذ")
+    private val tookVerbs: Set<String> by lazy { ns("اخذ", "خذ", "ياخذ") + (com.daftari.app.chat.DialectLexicon.words(com.daftari.app.chat.DialectLexicon.Intent.TOOK) - receivedVerbs) }
     /** «سجل / اكتب / قيد …»: says write it, not which way. */
-    private val genericVerbs = ns("سجل", "سجلي", "سجله", "سجلها", "قيد", "قيدي", "قيده", "اكتب", "اكتبي", "اكتبه", "حط", "حطي", "حطه", "ضيف", "اضف", "سجللي", "قيدلي")
+    private val genericVerbs = ns("خليه", "خلي", "خليها", "سجل", "سجلي", "سجله", "سجلها", "قيد", "قيدي", "قيده", "اكتب", "اكتبي", "اكتبه", "حط", "حطي", "حطه", "ضيف", "اضف", "سجللي", "قيدلي")
     private val currencyWords = ns("ريال", "ريالات", "سعودي", "سعوديه", "يمني", "دولار", "دولارات", "بالدولار", "بالسعودي", "باليمني", "بالريال", "دولارا", "امريكي")
     private val preps = ns("من", "عند", "باسم", "لـ", "الى", "لصالح")
     private val pronouns = ns("منه", "منها", "مني", "منا", "مننا", "له", "لها", "لي", "لنا", "عنده", "عليه", "عليها", "عليهم")
@@ -78,6 +91,15 @@ object VoiceEntryParser {
         "عندي", "عندنا", "لديه", "كم", "سجلت", "تم", "الدين", "السداد", "التسديد",
     )
     private val nameJoiners = ns("عبد", "ابو", "ام", "بن", "بنت", "ال")
+    /** 1.1.8: «طلع / نزل / اطبع / خرج لي كشف» — the verbs and the noun are never part of a name */
+    private val statementVerbs: Set<String> by lazy { statementVerbs0 + com.daftari.app.chat.DialectLexicon.words(com.daftari.app.chat.DialectLexicon.Intent.SHOW) }
+    private val statementVerbs0 = ns(
+        "طلع", "طلعلي", "نزل", "نزللي", "اطبع", "اطبعلي", "طبع", "خرج", "خرجلي", "اخرج", "اخرجلي", "اعطني", "عطني", "ارسل", "ارسلي", "ابعث", "اعرض",
+        "هات", "هاتلي", "جيب", "جيبلي", "وريني",
+    )
+    private val statementNouns: Set<String> by lazy { ns("كشف", "الكشف", "كشفه", "كشفها", "كشفي", "كشوفات") + com.daftari.app.chat.DialectLexicon.words(com.daftari.app.chat.DialectLexicon.Intent.STATEMENT) }
+    private val fullWords: Set<String> by lazy { ns("كامل", "كاملا", "كامله", "بالكامل", "كله", "كلها", "خالص") + com.daftari.app.chat.DialectLexicon.words(com.daftari.app.chat.DialectLexicon.Intent.FULL) }
+    private val baWords = ns("ب", "بـ", "بمبلغ", "بقيمه", "بسعر")
 
     private enum class Role { AMOUNT, CURRENCY, VERB, PREP, PRONOUN, NOTE, FILLER, NAME }
 
@@ -108,7 +130,8 @@ object VoiceEntryParser {
     /** «على» typed with the final ى is the preposition; «علي» is the name. */
     private fun isAlaPrep(t: Tk) = t.n == "علي" && t.raw.endsWith("ى")
 
-    fun parse(transcript: String, customers: List<VoiceCustomer>): VoiceDraft {
+    /** [last] = the customer the chat / mic was last about, used when no name is said («سجل عليه 500», «طلع لي كشف»). */
+    fun parse(transcript: String, customers: List<VoiceCustomer>, last: VoiceCustomer? = null): VoiceDraft {
         val tk = tokens(transcript)
         if (tk.isEmpty()) return VoiceDraft(transcript)
         val words = tk.map { it.n }
@@ -132,6 +155,7 @@ object VoiceEntryParser {
             val n = t.n
             t.role = when {
                 n in currencyWords -> Role.CURRENCY
+                n in statementVerbs || n in statementNouns -> Role.VERB
                 isAlaPrep(t) -> Role.PREP
                 n in noteMarkers -> Role.NOTE
                 n in payVerbs || n in receivedVerbs || n in debtVerbs || n in tookVerbs || n in genericVerbs -> Role.VERB
@@ -160,20 +184,40 @@ object VoiceEntryParser {
                 i = j
             } else i++
         }
-        val preferred = runs.firstOrNull { r -> r.first > 0 && tk[r.first - 1].role in setOf(Role.PREP, Role.VERB, Role.PRONOUN) } ?: runs.firstOrNull()
-        val nameTokens = preferred?.let { r -> tk.subList(r.first, minOf(r.last + 1, r.first + 4)) }.orEmpty()
+        // 1.1.8: words after an amount said with «بـ» are the items («اخذ بـ500 رز»), never the name
+        val baAmount = amount != null && (words.getOrNull(amount.start - 1) in baWords || (words[amount.start].length > 2 && words[amount.start][0] == 'ب' && !words[amount.start][1].isDigit()))
+        val nameRuns = if (baAmount) runs.filter { it.first < amount!!.start } else runs
+        val preferred = nameRuns.firstOrNull { r -> r.first > 0 && tk[r.first - 1].role in setOf(Role.PREP, Role.VERB, Role.PRONOUN) } ?: nameRuns.firstOrNull()
+        val nameTokens = preferred?.let { r -> tk.subList(r.first, minOf(r.last + 1, r.first + 5)) }.orEmpty()
             .dropLastWhile { it.n in nameJoiners }
         val spokenName = nameTokens.joinToString(" ") { it.nameValue }.trim()
         val spokenNorm = nameTokens.map { ArabicText.normalize(it.nameValue) }.filter { it.isNotBlank() }
 
-        // ---- note: what follows a marker («حق غاز»، «قيمة كيس رز»)
-        val note = if (noteAt < 0) "" else tk.drop(noteAt + 1).filter { it.role == Role.NAME }.joinToString(" ") { it.raw }.trim()
+        // ---- note: what follows a marker («حق غاز»، «قيمة كيس رز»), or (1.1.8) the items after «بـ500» («اخذ بـ500 رز»)
+        val nameIdx = preferred?.let { r -> (r.first until minOf(r.last + 1, r.first + 5)).toSet() }.orEmpty()
+        val note = when {
+            noteAt >= 0 -> tk.drop(noteAt + 1).filter { it.role == Role.NAME }.joinToString(" ") { it.raw }.trim()
+            baAmount -> tk.indices.filter { it >= amount!!.end && it !in nameIdx && tk[it].role == Role.NAME }.joinToString(" ") { tk[it].raw }.trim()
+            else -> ""
+        }
+
+        // ---- 1.1.8 intents: statement / full balance
+        val statement = words.any { it in statementNouns } && amount == null && kind != VoiceKind.PAYMENT
+        val fullBalance = kind == VoiceKind.PAYMENT && amount == null &&
+            (words.any { it in fullWords } || words.any { it in ns("صفي", "صفا", "صفاه") } ||
+                Regex(" (الي|اللي|الذي|كل) (عليه|عليها|عليهم|حقه|حقها) ").containsMatchIn(" " + words.joinToString(" ") + " "))
+
+        // ---- no name said: the last customer («سجل عليه 500», «سدد الي عليه كامل», «طلع لي كشف»)
+        if (spokenNorm.isEmpty() && last != null && (kind != null || statement || amount != null)) return VoiceDraft(
+            transcript = transcript, kind = if (statement) null else kind, amount = amount?.value, currency = currency,
+            customer = last, customerSure = true, note = note, statement = statement, fullBalance = fullBalance, fromContext = true,
+        )
 
         val m = matchName(spokenNorm, customers)
         return VoiceDraft(
-            transcript = transcript, kind = kind, amount = amount?.value, currency = currency,
+            transcript = transcript, kind = if (statement) null else kind, amount = amount?.value, currency = currency,
             customer = m.customer, customerSure = m.sure, options = m.options,
-            newName = if (m.customer != null && m.sure) "" else spokenName, note = note,
+            newName = if (m.customer != null && m.sure) "" else spokenName, note = note, statement = statement, fullBalance = fullBalance,
         )
     }
 
@@ -250,6 +294,11 @@ object VoiceEntryParser {
         val sc = compact(spoken)
         val exact = ArrayList<VoiceCustomer>(); val near = ArrayList<VoiceCustomer>()
         val prefix = ArrayList<VoiceCustomer>(); val loose = ArrayList<VoiceCustomer>()
+        // 1.1.8: a 2+ word name that starts a longer spoken run («محمد اليتيم» in «محمد اليتيم وسط العلي»), longest first
+        val starts = customers.mapNotNull { c ->
+            val ct = ArabicText.words(c.name)
+            if (ct.size >= 2 && spoken.size > ct.size && ct.indices.all { tokenEq(spoken[it], ct[it]) }) c to ct.size else null
+        }
         for (c in customers) {
             val ct = ArabicText.words(c.name)
             if (ct.isEmpty()) continue
@@ -265,8 +314,11 @@ object VoiceEntryParser {
         }
         fun uniq(l: List<VoiceCustomer>) = l.distinctBy { it.id }
         val ex = uniq(exact); val nr = uniq(near - exact.toSet()); val pr = uniq(prefix); val lo = uniq(loose)
+        val longest = starts.maxOfOrNull { it.second }
+        val st = starts.filter { it.second == longest }.map { it.first }.distinctBy { it.id }
         return when {
             ex.size == 1 -> NameResult(ex[0], true, emptyList())
+            ex.isEmpty() && st.size == 1 -> NameResult(st[0], true, emptyList())
             ex.size > 1 -> NameResult(null, false, ex)
             nr.size == 1 && pr.isEmpty() -> NameResult(nr[0], false, emptyList())
             nr.isNotEmpty() -> NameResult(null, false, uniq(nr + pr).take(6))

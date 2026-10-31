@@ -6,6 +6,9 @@
  * audio/mpeg | application/octet-stream) or multipart/form-data with a "file" part. Auth: the app's Bearer token when
  * signed in (VOICE_HOURLY_LIMIT per user per hour), else per IP (ANON_VOICE_HOURLY_LIMIT). Missing key → 503 voice_disabled.
  * Returns { text }. Audio is never stored or logged.
+ * 1.2.2: an optional transcription hint — `?prompt=` in the URL or a multipart text field "prompt" (customer names and the
+ * shop's key phrases, sent by app 1.1.8). It is cleaned and capped (≈200 Whisper tokens, [PROMPT_MAX_CHARS]) and forwarded
+ * as Groq Whisper's `prompt`. Absent or empty = exactly the 1.2.1 behaviour, so old apps and new apps both work.
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Config } from "./config.js";
@@ -17,6 +20,38 @@ const RAW_TYPES = ["audio/wav", "audio/x-wav", "audio/wave", "audio/mp4", "audio
 const err = (code: string, message: string) => ({ error: { code, message } });
 
 export interface VoiceDeps { cfg: Config; store: Store; fetch: Fetch; now: () => number; userOf: (req: FastifyRequest) => Promise<User | null> }
+
+/** ≈200 Whisper tokens of Arabic text (an Arabic word is ≈2–3 tokens). */
+export const PROMPT_MAX_CHARS = 400;
+
+/** The transcription hint as Groq gets it: one line, no control characters, at most [PROMPT_MAX_CHARS] (cut at a separator). */
+export function cleanPrompt(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  let s = raw.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  if (s.length <= PROMPT_MAX_CHARS) return s;
+  s = s.slice(0, PROMPT_MAX_CHARS);
+  const cut = Math.max(s.lastIndexOf("،"), s.lastIndexOf(","), s.lastIndexOf("."), s.lastIndexOf(" "));
+  return (cut > PROMPT_MAX_CHARS / 2 ? s.slice(0, cut) : s).trim();
+}
+
+/** A plain text field of a multipart body ("" when absent). */
+export function formField(body: Buffer, contentType: string, name: string): string {
+  const m = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
+  if (!m) return "";
+  const boundary = Buffer.from("--" + (m[1] ?? m[2]).trim());
+  let pos = body.indexOf(boundary);
+  while (pos >= 0) {
+    const headStart = pos + boundary.length + 2;
+    const headEnd = body.indexOf("\r\n\r\n", headStart);
+    if (headEnd < 0) return "";
+    const next = body.indexOf(boundary, headEnd + 4);
+    if (next < 0) return "";
+    const head = body.subarray(headStart, headEnd).toString("utf8");
+    if (!/filename=/i.test(head) && new RegExp(`name="${name}"`, "i").test(head)) return body.subarray(headEnd + 4, next - 2).toString("utf8");
+    pos = next;
+  }
+  return "";
+}
 
 /** First file part of a multipart body: its bytes, file name and content type (null when there is none). */
 export function firstFilePart(body: Buffer, contentType: string): { data: Buffer; name: string; type: string } | null {
@@ -73,6 +108,9 @@ export function registerVoice(app: FastifyInstance, d: VoiceDeps) {
     const secs = wavSeconds(file.data);
     if (secs !== null && secs > 16) return reply.code(413).send(err("too_long", "التسجيل أطول من 15 ثانية"));
 
+    const q = (req.query ?? {}) as Record<string, unknown>;
+    const prompt = cleanPrompt(ct.startsWith("multipart/") ? formField(raw, ctRaw, "prompt") || q.prompt : q.prompt);
+
     const u = await userOf(req);
     const hour = Math.floor(now() / 3600_000);
     const limit = u ? cfg.voiceHourlyLimit : cfg.anonVoiceHourlyLimit;
@@ -85,6 +123,7 @@ export function registerVoice(app: FastifyInstance, d: VoiceDeps) {
       form.append("language", "ar");
       form.append("response_format", "json");
       form.append("temperature", "0");
+      if (prompt) form.append("prompt", prompt);
       let r: Response;
       try {
         r = await d.fetch("https://api.groq.com/openai/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${keys[i]}` }, body: form });

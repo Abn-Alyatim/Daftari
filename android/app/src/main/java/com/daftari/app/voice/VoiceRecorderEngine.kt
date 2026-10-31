@@ -6,6 +6,8 @@
  * /api/v1/voice/transcribe, 8 s timeout; the Groq key lives on the server only) then OFFLINE (whisper.cpp in Arabic on a
  * background thread, threads = min(4, cores)). Any online failure (offline, timeout, 5xx, 429, voice disabled) falls
  * through to the offline model; with no model it offers the download. Results reach the listener on the main thread.
+ * 1.1.8: both engines get a hint ([VoiceHint]: the shop's phrases + customer names); a «voice off» server is retried
+ * after a minute ([VoiceCooldown]) instead of never again this session.
  */
 package com.daftari.app.voice
 
@@ -33,7 +35,7 @@ class VoiceRecorderEngine(private val ctx: Context) : SpeechEngine {
     /** Online voice is worth trying now (decides whether the mic may record before a model is downloaded). */
     fun onlineLikely(): Boolean {
         VoicePrefs.load(ctx)
-        return VoiceEngines.plan(VoicePrefs.mode.value, networkUp(ctx), serverConfigured(), VoicePrefs.serverVoice, offlineReady = false).isNotEmpty()
+        return VoiceEngines.plan(VoicePrefs.mode.value, networkUp(ctx), serverConfigured(), VoicePrefs.serverVoiceNow(android.os.SystemClock.elapsedRealtime()), offlineReady = false).isNotEmpty()
     }
 
     override fun start(listener: SpeechEngine.Listener) {
@@ -90,15 +92,17 @@ class VoiceRecorderEngine(private val ctx: Context) : SpeechEngine {
         if (!eos.heardSpeech && !(stopRequested && len > rate / 2)) { post { listener.onProblem(VoiceProblem.NOTHING_HEARD) }; return }
         post { listener.onTranscribing() }
 
-        val plan = VoiceEngines.plan(VoicePrefs.mode.value, networkUp(ctx), serverConfigured(), VoicePrefs.serverVoice, offlineReady)
+        val plan = VoiceEngines.plan(VoicePrefs.mode.value, networkUp(ctx), serverConfigured(), VoicePrefs.serverVoiceNow(android.os.SystemClock.elapsedRealtime()), offlineReady)
+        // 1.1.8: customer names + the shop's phrases as a hint, so «سجل عليه» / «محمد اليتيم» are heard right the first time
+        val names = VoiceHint.names
         for (via in plan) {
             if (cancelled) return
             val text = when (via) {
-                VoiceVia.ONLINE -> online(take, len)
+                VoiceVia.ONLINE -> online(take, len, VoiceHint.online(names))
                 VoiceVia.OFFLINE -> {
                     loader?.join()
                     if (!WhisperNative.ensure(modelPath!!)) { post { listener.onProblem(VoiceProblem.MODEL_BROKEN) }; return }
-                    WhisperNative.transcribe(FloatArray(len) { take[it] / 32768f }, "ar")
+                    WhisperNative.transcribe(FloatArray(len) { take[it] / 32768f }, "ar", prompt = VoiceHint.offline(names))
                 }
             } ?: continue // online failed → next engine
             if (cancelled) return
@@ -112,12 +116,13 @@ class VoiceRecorderEngine(private val ctx: Context) : SpeechEngine {
     }
 
     /** The recording through the server; null on any failure (the caller falls back to the offline model). */
-    private fun online(pcm: ShortArray, len: Int): String? = try {
-        val text = (ctx.applicationContext as DaftariApp).graph.api.transcribeVoice(Wav.encode(pcm, len, 16_000))
-        VoicePrefs.serverVoice = true
+    private fun online(pcm: ShortArray, len: Int, prompt: String): String? = try {
+        val text = (ctx.applicationContext as DaftariApp).graph.api.transcribeVoice(Wav.encode(pcm, len, 16_000), prompt = prompt)
+        VoicePrefs.onlineWorked()
         text
     } catch (e: ApiException) {
-        if (e.code == "voice_disabled" || e.status == 404) VoicePrefs.serverVoice = false // not on this server: stop trying this session
+        // not on this server right now: skip online for a minute (1.1.8; 1.1.7 gave up for the whole session)
+        if (e.code == "voice_disabled" || e.status == 404) VoicePrefs.onlineDisabled(android.os.SystemClock.elapsedRealtime())
         null
     } catch (_: Exception) { null }
 

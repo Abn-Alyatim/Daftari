@@ -1,3 +1,9 @@
+/*
+ * دفتري · chat/ChatEngine.kt
+ * رسائل محادثة «مدين» (نص، جدول، بطاقة تأكيد، اختيارات) والسياق المختصر الذي يُرسل للذكاء الاصطناعي عبر الإنترنت.
+ * Chat message model + the compact ledger context the online AI may see. 1.1.8: messages carry the customer they are
+ * about ([ChatMessage.about]) for the chat memory, and a statement-PDF request ([ChatMessage.openStatement]).
+ */
 package com.daftari.app.chat
 
 import com.daftari.app.core.AppInfo
@@ -26,6 +32,12 @@ data class ChatMessage(
     /** «أي محمد تقصد؟»: one tap picks a customer and turns into a confirmation card */
     val choices: List<ChatAction> = emptyList(),
     val id: Long = System.nanoTime(),
+    /** 1.1.8: the customer this message is about (0 = none) — the chat's «آخر زبون» for «سجل عليه» / «طلع لي كشف» */
+    val about: Long = 0,
+    /** 1.1.8: «طلع / اطبع لي كشف»: open this customer's statement (PDF) screen now (0 = no) */
+    val openStatement: Long = 0,
+    /** 1.1.8: «كم المبلغ؟» was asked for [about]: a bare amount next is a payment (true) or a debt (false); null = not asked */
+    val askAmountPayment: Boolean? = null,
 )
 
 /**

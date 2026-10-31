@@ -9,7 +9,7 @@ import { loadConfig } from "../src/config.js";
 import { MemoryStore } from "../src/store.js";
 import { makeOtp } from "../src/otp.js";
 import { Ai } from "../src/ai.js";
-import { firstFilePart, wavSeconds } from "../src/voice.js";
+import { cleanPrompt, firstFilePart, formField, PROMPT_MAX_CHARS, wavSeconds } from "../src/voice.js";
 
 function wav(seconds: number): Buffer {
   const rate = 16000, n = Math.round(rate * seconds), b = Buffer.alloc(44 + n * 2);
@@ -100,5 +100,37 @@ describe("voice transcribe", () => {
     const codes: number[] = [];
     for (let i = 0; i < 4; i++) codes.push((await app.inject({ method: "POST", url: "/api/v1/voice/transcribe", headers: { "content-type": "audio/wav" }, payload: wav(1) })).statusCode);
     expect(codes).toEqual([200, 200, 200, 429]);
+  });
+
+  // ---- 1.2.2: optional transcription hint (customer names + key phrases) → Groq whisper `prompt`
+  it("forwards ?prompt= to Groq as whisper's prompt; none = no prompt field (1.2.1 behaviour)", async () => {
+    const { app, calls } = setup({ GROQ_API_KEY: "k1" }, [ok("سجل عليه 500"), ok("نص")]);
+    const hint = "زبائن: محمد اليتيم، علي أحمد. سجل عليه، سدد الي عليه كامل، طلع لي كشف";
+    const r = await app.inject({ method: "POST", url: "/api/v1/voice/transcribe?prompt=" + encodeURIComponent(hint), headers: { "content-type": "audio/wav" }, payload: wav(2) });
+    expect(r.statusCode).toBe(200);
+    expect(calls[0].form?.get("prompt")).toBe(hint);
+    const r2 = await app.inject({ method: "POST", url: "/api/v1/voice/transcribe", headers: { "content-type": "audio/wav" }, payload: wav(2) });
+    expect(r2.statusCode).toBe(200);
+    expect(calls[1].form?.has("prompt")).toBe(false);
+  });
+
+  it("reads a multipart prompt field and caps a long hint", async () => {
+    const { app, calls } = setup({ GROQ_API_KEY: "k1" }, [ok("x")]);
+    const audio = wav(1);
+    const body = Buffer.concat([
+      Buffer.from('--XyZ\r\nContent-Disposition: form-data; name="prompt"\r\n\r\nمحمد اليتيم، سجل عليه\r\n'),
+      Buffer.from('--XyZ\r\nContent-Disposition: form-data; name="file"; filename="v.wav"\r\nContent-Type: audio/wav\r\n\r\n'), audio,
+      Buffer.from("\r\n--XyZ--\r\n"),
+    ]);
+    const r = await app.inject({ method: "POST", url: "/api/v1/voice/transcribe", headers: { "content-type": "multipart/form-data; boundary=XyZ" }, payload: body });
+    expect(r.statusCode).toBe(200);
+    expect(calls[0].form?.get("prompt")).toBe("محمد اليتيم، سجل عليه");
+    expect(formField(body, "multipart/form-data; boundary=XyZ", "prompt")).toBe("محمد اليتيم، سجل عليه");
+    const long = Array.from({ length: 200 }, (_, i) => "زبون" + i).join("، ");
+    const c = cleanPrompt(long);
+    expect(c.length).toBeLessThanOrEqual(PROMPT_MAX_CHARS);
+    expect(c.length).toBeGreaterThan(PROMPT_MAX_CHARS / 2);
+    expect(cleanPrompt("سطر\nثاني\u0000")).toBe("سطر ثاني");
+    expect(cleanPrompt(undefined)).toBe("");
   });
 });

@@ -121,10 +121,12 @@ class DaftariApi(private val baseUrl: () -> String, private val token: () -> Str
      * off the main thread. [wav] is 16 kHz mono PCM16; the whole call gives up after [timeoutSec]. Throws [ApiException]
      * ("voice_disabled" when the server has no key, "offline" on no network / timeout).
      */
-    fun transcribeVoice(wav: ByteArray, timeoutSec: Long = 8): String {
+    fun transcribeVoice(wav: ByteArray, timeoutSec: Long = 8, prompt: String = ""): String {
         val client = http.newBuilder().callTimeout(timeoutSec, TimeUnit.SECONDS).connectTimeout(5, TimeUnit.SECONDS).readTimeout(timeoutSec, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false).build()
-        val rb = Request.Builder().url(url("/api/v1/voice/transcribe")).post(wav.toRequestBody("audio/wav".toMediaType()))
+        // 1.1.8: the optional hint (customer names + phrases) rides as ?prompt= — server 1.2.2 forwards it to Whisper, older ones ignore it
+        val q = if (prompt.isBlank()) "" else "?prompt=" + java.net.URLEncoder.encode(prompt, "UTF-8").replace("+", "%20")
+        val rb = Request.Builder().url(url("/api/v1/voice/transcribe") + q).post(wav.toRequestBody("audio/wav".toMediaType()))
         token().takeIf { it.isNotBlank() }?.let { rb.header("Authorization", "Bearer $it") }
         val resp = try { client.newCall(rb.header("Accept", "application/json").build()).execute() }
             catch (e: IOException) { throw ApiException("offline", "لا يوجد اتصال بالإنترنت أو أن الخادم لا يستجيب") }
